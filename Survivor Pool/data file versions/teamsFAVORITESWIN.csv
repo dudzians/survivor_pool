@@ -1,0 +1,65 @@
+seed,region,teamName,conf,intourney,64odds,32odds,16odds,8odds,4odds,2odds
+1,Midwest,Houston,B12,100,100,100,100,100,100,100
+1,East,Duke,ACC,100,100,100,100,100,0,0
+1,South,Auburn,SEC,100,100,100,100,100,100,0
+1,West,Florida,SEC,100,100,100,100,100,0,0
+2,East,Alabama,SEC,100,100,100,100,0,0,0
+2,South,Michigan St.,B10,100,100,100,100,0,0,0
+2,Midwest,Tennessee,SEC,100,100,100,100,0,0,0
+3,West,Texas Tech,B12,100,100,100,0,0,0,0
+4,East,Arizona,B12,100,100,100,0,0,0,0
+10,West,Arkansas,SEC,100,0,0,0,0,0,0
+6,East,BYU,B12,100,100,0,0,0,0,0
+3,Midwest,Kentucky,SEC,100,100,100,0,0,0,0
+4,West,Maryland,B10,100,100,100,0,0,0,0
+5,South,Michigan,B10,100,100,0,0,0,0,0
+6,South,Mississippi,SEC,100,100,0,0,0,0,0
+4,Midwest,Purdue,B10,100,100,100,0,0,0,0
+9,East,Baylor,B12,100,0,0,0,0,0,0
+12,West,Colorado St.,MWC,100,0,0,0,0,0,0
+8,West,Connecticut,BE,100,100,0,0,0,0,0
+9,South,Creighton,BE,100,0,0,0,0,0,0
+11,West,Drake,MVC,100,0,0,0,0,0,0
+8,Midwest,Gonzaga,WCC,100,100,0,0,0,0,0
+6,Midwest,Illinois,B10,100,100,0,0,0,0,0
+3,South,Iowa St.,B12,100,100,100,0,0,0,0
+12,Midwest,McNeese St.,Slnd,100,0,0,0,0,0,0
+10,South,New Mexico,MWC,100,0,0,0,0,0,0
+5,East,Oregon,B10,100,100,0,0,0,0,0
+7,East,Saint Mary's,WCC,100,100,0,0,0,0,0
+2,West,St. John's,BE,100,100,100,100,0,0,0
+4,South,Texas A&M,SEC,100,100,100,0,0,0,0
+7,Midwest,UCLA,B10,100,100,0,0,0,0,0
+3,East,Wisconsin,B10,100,100,100,0,0,0,0
+13,East,Akron,MAC,100,0,0,0,0,0,0
+16,South,Alabama St.,SWAC,100,0,0,0,0,0,0
+15,South,Bryant,AE,100,0,0,0,0,0,0
+5,Midwest,Clemson,ACC,100,100,0,0,0,0,0
+9,Midwest,Georgia,SEC,100,0,0,0,0,0,0
+13,West,Grand Canyon,WAC,100,0,0,0,0,0,0
+13,Midwest,High Point,BSth,100,0,0,0,0,0,0
+7,West,Kansas,B12,100,100,0,0,0,0,0
+12,East,Liberty,CUSA,100,0,0,0,0,0,0
+14,South,Lipscomb,ASun,100,0,0,0,0,0,0
+8,South,Louisville,ACC,100,100,0,0,0,0,0
+7,South,Marquette,BE,100,100,0,0,0,0,0
+5,West,Memphis,Amer,100,100,0,0,0,0,0
+8,East,Mississippi St.,SEC,100,100,0,0,0,0,0
+6,West,Missouri,SEC,100,100,0,0,0,0,0
+14,East,Montana,BSky,100,0,0,0,0,0,0
+16,East,Mount St. Mary's,MAAC,100,0,0,0,0,0,0
+15,West,Nebraska Omaha,Sum,100,0,0,0,0,0,0
+16,West,Norfolk St.,MEAC,100,0,0,0,0,0,0
+11,South,North Carolina,ACC,100,0,0,0,0,0,0
+9,West,Oklahoma,SEC,100,0,0,0,0,0,0
+15,East,Robert Morris,Horz,100,0,0,0,0,0,0
+16,Midwest,SIU Edwardsville,OVC,100,0,0,0,0,0,0
+14,Midwest,Troy,SB,100,0,0,0,0,0,0
+12,South,UC San Diego,BW,100,0,0,0,0,0,0
+14,West,UNC Wilmington,CAA,100,0,0,0,0,0,0
+10,Midwest,Utah St.,MWC,100,0,0,0,0,0,0
+11,East,VCU,A10,100,0,0,0,0,0,0
+10,East,Vanderbilt,SEC,100,0,0,0,0,0,0
+15,Midwest,Wofford,SC,100,0,0,0,0,0,0
+11,Midwest,Xavier,BE,100,0,0,0,0,0,0
+13,South,Yale,Ivy,100,0,0,0,0,0,0

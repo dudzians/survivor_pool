@@ -3,22 +3,6 @@ import numpy as np
 from collections import defaultdict
 import argparse
 import random
-import csv
-
-def load_seed_boosts(path='seed_boosts.csv'):
-    boosts = {}
-    with open(path, newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            round_label = row['round']
-            seed = int(row['seed'])
-            boost = float(row['boost'])
-            if round_label not in boosts:
-                boosts[round_label] = {}
-            boosts[round_label][seed] = boost
-    return boosts
-
-SEED_BOOSTS = load_seed_boosts()
 
 def load_data():
     # Load data from CSV files
@@ -170,10 +154,11 @@ class TournamentSimulator:
         return self.schedule_df[self.schedule_df['day'] == date]
 
 class SurvivorPoolSimulator:
-    def __init__(self, schedule_df, teams_df, picks_df, variance_factor, target_date):
+    def __init__(self, schedule_df, teams_df, picks_df, favorites_factor, variance_factor, target_date):
         self.schedule_df = schedule_df
         self.teams_df = teams_df
         self.picks_df = picks_df
+        self.favorites_factor = favorites_factor
         self.variance_factor = variance_factor
         self.target_date = target_date
         
@@ -270,32 +255,30 @@ class SurvivorPoolSimulator:
                 seed = team_row['seed'].iloc[0]
                 odds = team_row['64odds'].iloc[0]  # Use first round odds as baseline
                 
-                # Retrieve the team's seed from teams_df
-                seed = self.teams_df[self.teams_df['teamName'] == team]['seed'].iloc[0]
-                # Determine current round label; assume it's provided in game['round'], else default to 'R64'
-                current_round = game['round'] if 'round' in game else 'R64'
-                
-                # Convert the current_round from string format (like "R32") to numeric (like 32)
-                # If current_round is a string like "R32", extract the number part
-                numeric_round = current_round
-                if isinstance(current_round, str) and current_round.startswith('R'):
-                    try:
-                        numeric_round = int(current_round[1:])
-                    except ValueError:
-                        numeric_round = 64  # Default if conversion fails
-                
-                # Look up the boost value using the numeric round value
-                boost_multiplier = SEED_BOOSTS.get(str(numeric_round), {}).get(seed, 1)
-                
-                # DEBUG: Print the round, seed, and boost value
-                print(f"Round: {current_round}, Team: {team}, Seed: {seed}, Boost: {boost_multiplier}")
+                # Adjust favorites factor based on round
+                if current_round in [64, 32]:
+                    # Favor seeds 4-6 in early rounds
+                    if 4 <= seed <= 6:
+                        seed_factor = (17 - seed) * (self.favorites_factor * 5.0)  # Much stronger boost for seeds 4-6
+                    else:
+                        seed_factor = (17 - seed) * self.favorites_factor
+                elif current_round in [16, 8]:
+                    # Favor seeds 2-4 in middle rounds
+                    if 2 <= seed <= 4:
+                        seed_factor = (17 - seed) * (self.favorites_factor * 5.0)  # Much stronger boost for seeds 2-4
+                    else:
+                        seed_factor = (17 - seed) * self.favorites_factor
+                else:  # R4 or Final
+                    # Favor 1-seeds in late rounds
+                    if seed == 1:
+                        seed_factor = (17 - seed) * (self.favorites_factor * 5.0)  # Much stronger boost for 1-seeds
+                    else:
+                        seed_factor = (17 - seed) * self.favorites_factor
                 
                 # Apply random variance
                 variance = random.uniform(-self.variance_factor, self.variance_factor)
-                
-                # Combine factors to create pick weight with direct boost multiplier
-                # Changed formula to use boost_multiplier directly without exponentiation
-                pick_weight = odds * boost_multiplier * (1 + variance/100)
+                # Combine factors to create pick weight
+                pick_weight = odds * (1 + seed_factor/100) * (1 + variance/100)
                 team_odds[team] = pick_weight
         
         # Choose team based on pick weights
@@ -537,7 +520,7 @@ def get_next_date(current_date, schedule_df):
         return dates[current_idx + 1]
     return None
 
-def run_simulations(num_simulations, target_date, target_player, variance_factor):
+def run_simulations(num_simulations, target_date, target_player, favorites_factor, variance_factor):
     schedule_df, teams_df, picks_df, team_mapping = load_data()
     
     # Initialize counters for statistics
@@ -551,19 +534,10 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
         
         # Create new simulators for this simulation
         tournament_sim = TournamentSimulator(schedule_df, teams_df, team_mapping)
-        survivor_sim = SurvivorPoolSimulator(schedule_df, teams_df, picks_df, variance_factor, target_date)
+        survivor_sim = SurvivorPoolSimulator(schedule_df, teams_df, picks_df, favorites_factor, variance_factor, target_date)
         
         # Run the simulation
         survivor_sim.run_simulation(tournament_sim)
-        
-        # Ensure we have a winner set
-        if survivor_sim.winner is None:
-            # If simulation ended but no winner was recorded, determine one
-            survivor_sim.winner = survivor_sim.determine_winner()
-            print(f"No winner recorded, determined winner: {survivor_sim.winner}")
-            # Record triumph for the winner if they picked on target date
-            if survivor_sim.winner is not None and survivor_sim.winner in survivor_sim.target_date_picks:
-                survivor_sim.target_date_triumphs.add(survivor_sim.winner)
         
         # Make sure we simulate the final game if it hasn't been simulated yet
         final_game = schedule_df[schedule_df['gameID'] == 'FINAL'].iloc[0]
@@ -625,10 +599,7 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
         prob = (stats['triumphs'] / stats['picks'] * 100) if stats['picks'] > 0 else 0
         print(f"{player_id:9d} | {stats['picks']:20d} | {stats['triumphs']:14d} | {prob:8.2f}%")
     print("-" * 75)
-    total_picks = sum(s['picks'] for s in player_stats.values())
-    total_triumphs = sum(s['triumphs'] for s in player_stats.values())
-    total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
-    print(f"TOTAL     | {total_picks:20d} | {total_triumphs:14d} | {total_prob:8.2f}%")
+    print(f"TOTAL     | {sum(s['picks'] for s in player_stats.values()):20d} | {sum(s['triumphs'] for s in player_stats.values()):14d} | {100:8.2f}%")
     
     # Team Statistics (All Players)
     print("\nTeam Statistics (All Players):")
@@ -675,6 +646,7 @@ def main():
     parser.add_argument('--simulations', type=int, default=20, help='Number of simulations to run')
     parser.add_argument('--target-date', type=str, required=True, help='Target date to analyze (MM/DD/YYYY)')
     parser.add_argument('--target-player', type=int, required=True, help='Target player ID to analyze')
+    parser.add_argument('--favorites-factor', type=int, default=5, help='How much to favor teams with better odds (1-10)')
     parser.add_argument('--variance-factor', type=int, default=5, help='How much random variation in picks (1-10)')
     args = parser.parse_args()
 
@@ -701,7 +673,7 @@ def main():
         print(f"{team} -> {mapped}")
     
     # Run simulations
-    run_simulations(args.simulations, args.target_date, args.target_player, args.variance_factor)
+    run_simulations(args.simulations, args.target_date, args.target_player, args.favorites_factor, args.variance_factor)
 
 if __name__ == "__main__":
     main()

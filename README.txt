@@ -1,6 +1,5 @@
-python tournament_simulator.py --simulations 1 --target-date 4/5/2025 --target-player 662 --favorites-factor 10 --variance-factor 2
-python tournament_simulator.py --simulations 100 --target-date 3/27/2025 --target-player 66 --favorites-factor 10 --variance-factor 2
-python tournament_simulator.py --simulations 100 --target-date 3/20/2025 --target-player 66 --favorites-factor 10 --variance-factor 2
+python tournament_simulator.py --simulations 10 --target-date 3/20/2025 --target-player 662 --variance-factor 0
+python tournament_simulator.py --simulations 10 --target-date 3/20/2025 --target-player 66 --variance-factor 0
 
 
 ensure tiebreaking is working by asking how it's set up then running sims and ask it to point out any tiebreakers and explain why one player won over the other
@@ -16,3 +15,14 @@ IN ORDER TO RUN THIS PROGRAM THE ORDER SHOULD BE:
 
 
 when running on the big tourney my survivor_pool.csv ended up 2255 unique entries but per website it's 2265. 
+
+
+
+please update seed boosting as follows:
+
+round of 64 - boost 3&4 seeds the most, then 2&5 less so, then 6&7 less so, then 8&9 less so, then 10&11&12 less so, then 1, then 13, then fully negate 14&15&16 so they aren't chosen
+round of 32 - boost 3&4 seeds the most, then 2&5 less so, then 6&7 less so, then 1 less so, then 10&11&12&13 less so, then 8&9, then fully negate 14&15&16 so they aren't chosen
+round of 16 - boost 2&3 seeds the most, then 6&7 less so, then 1&8&9&10 less so, then 4&5 less so, then everybody else after that
+round of 8 - boost 1 seeds the most then everybody else after that
+round of 4 - boost 1 seeds the most then everybody else after that
+round of 2 - boost 1 seeds the most then everybody else after that

@@ -1,0 +1,64 @@
+gameID,round,day,teamA,teamB
+R64_1,64,3/20/2025,Auburn,Alabama St.
+R64_2,64,3/20/2025,Louisville,Creighton
+R64_3,64,3/20/2025,Michigan,UC San Diego
+R64_4,64,3/20/2025,Texas A&M,Yale
+R64_5,64,3/21/2025,Mississippi,North Carolina
+R64_6,64,3/21/2025,Iowa St.,Lipscomb
+R64_7,64,3/21/2025,Marquette,New Mexico
+R64_8,64,3/21/2025,Michigan St.,Bryant
+R64_9,64,3/21/2025,Duke,Mount St. Mary's
+R64_10,64,3/21/2025,Mississippi St.,Baylor
+R64_11,64,3/21/2025,Oregon,Liberty
+R64_12,64,3/21/2025,Arizona,Akron
+R64_13,64,3/20/2025,BYU,VCU
+R64_14,64,3/20/2025,Wisconsin,Montana
+R64_15,64,3/21/2025,Saint Mary's,Vanderbilt
+R64_16,64,3/21/2025,Alabama,Robert Morris
+R64_17,64,3/21/2025,Florida,Norfolk St.
+R64_18,64,3/21/2025,Connecticut,Oklahoma
+R64_19,64,3/21/2025,Memphis,Colorado St.
+R64_20,64,3/21/2025,Maryland,Grand Canyon
+R64_21,64,3/20/2025,Missouri,Drake
+R64_22,64,3/20/2025,Texas Tech,UNC Wilmington
+R64_23,64,3/20/2025,Kansas,Arkansas
+R64_24,64,3/20/2025,St. John's,Nebraska Omaha
+R64_25,64,3/20/2025,Houston,SIU Edwardsville
+R64_26,64,3/20/2025,Gonzaga,Georgia
+R64_27,64,3/20/2025,Clemson,McNeese St.
+R64_28,64,3/20/2025,Purdue,High Point
+R64_29,64,3/21/2025,Illinois,Xavier
+R64_30,64,3/21/2025,Kentucky,Troy
+R64_31,64,3/20/2025,UCLA,Utah St.
+R64_32,64,3/20/2025,Tennessee,Wofford
+R32_1,32,3/22/2025,Winner of: R64_1,Winner of: R64_2
+R32_2,32,3/22/2025,Winner of: R64_3,Winner of: R64_4
+R32_3,32,3/23/2025,Winner of: R64_5,Winner of: R64_6
+R32_4,32,3/23/2025,Winner of: R64_7,Winner of: R64_8
+R32_5,32,3/23/2025,Winner of: R64_9,Winner of: R64_10
+R32_6,32,3/23/2025,Winner of: R64_11,Winner of: R64_12
+R32_7,32,3/22/2025,Winner of: R64_13,Winner of: R64_14
+R32_8,32,3/23/2025,Winner of: R64_15,Winner of: R64_16
+R32_9,32,3/23/2025,Winner of: R64_17,Winner of: R64_18
+R32_10,32,3/23/2025,Winner of: R64_19,Winner of: R64_20
+R32_11,32,3/22/2025,Winner of: R64_21,Winner of: R64_22
+R32_12,32,3/22/2025,Winner of: R64_23,Winner of: R64_24
+R32_13,32,3/22/2025,Winner of: R64_25,Winner of: R64_26
+R32_14,32,3/22/2025,Winner of: R64_27,Winner of: R64_28
+R32_15,32,3/23/2025,Winner of: R64_29,Winner of: R64_30
+R32_16,32,3/22/2025,Winner of: R64_31,Winner of: R64_32
+S16_1,16,3/28/2025,Winner of: R32_1,Winner of: R32_2
+S16_2,16,3/28/2025,Winner of: R32_3,Winner of: R32_4
+S16_3,16,3/27/2025,Winner of: R32_5,Winner of: R32_6
+S16_4,16,3/27/2025,Winner of: R32_7,Winner of: R32_8
+S16_5,16,3/27/2025,Winner of: R32_9,Winner of: R32_10
+S16_6,16,3/27/2025,Winner of: R32_11,Winner of: R32_12
+S16_7,16,3/28/2025,Winner of: R32_13,Winner of: R32_14
+S16_8,16,3/28/2025,Winner of: R32_15,Winner of: R32_16
+E8_1,8,3/30/2025,Winner of: S16_1,Winner of: S16_2
+E8_2,8,3/29/2025,Winner of: S16_3,Winner of: S16_4
+E8_3,8,3/29/2025,Winner of: S16_5,Winner of: S16_6
+E8_4,8,3/30/2025,Winner of: S16_7,Winner of: S16_8
+F4_1,4,4/5/2025,Winner of: E8_1,Winner of: E8_2
+F4_2,4,4/5/2025,Winner of: E8_3,Winner of: E8_4
+FINAL,2,4/7/2025,Winner of: F4_1,Winner of: F4_2 
