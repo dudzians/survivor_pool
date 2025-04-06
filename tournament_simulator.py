@@ -720,33 +720,35 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     
     # Team Statistics (All Players)
     print("\nTeam Statistics (All Players):")
-    print("Team | Picks on Target Date | Triumphs | Triumph Probability")
-    print("-" * 60)
+    print("Team | Picks on Target Date | % of Picks | Triumphs | Triumph Probability")
+    print("-" * 75)
     total_picks = sum(team_stats[team]['picks'] for team in team_stats)
     total_triumphs = sum(team_stats[team]['triumphs'] for team in team_stats)
     total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
     for team in sorted(team_stats.keys()):
         picks = team_stats[team]['picks']
         triumphs = team_stats[team]['triumphs']
+        pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
         prob = (triumphs / picks * 100) if picks > 0 else 0
-        print(f"{team:<20} | {picks:>20} | {triumphs:>9} | {prob:>8.2f}%")
-    print("-" * 60)
-    print(f"{'TOTAL':<20} | {total_picks:>20} | {total_triumphs:>9} | {total_prob:>8.2f}%")
+        print(f"{team:<20} | {picks:>20} | {pick_pct:>9.2f}% | {triumphs:>9} | {prob:>8.2f}%")
+    print("-" * 75)
+    print(f"{'TOTAL':<20} | {total_picks:>20} | {100:>9.2f}% | {total_triumphs:>9} | {total_prob:>8.2f}%")
     
     # Team Statistics (Target Player)
     print("\nTeam Statistics (Player {}):".format(target_player))
-    print("Team | Picks on Target Date | Triumphs | Triumph Probability")
-    print("-" * 60)
+    print("Team | Picks on Target Date | % of Picks | Triumphs | Triumph Probability")
+    print("-" * 75)
     total_picks = sum(target_player_team_stats[team]['picks'] for team in target_player_team_stats)
     total_triumphs = sum(target_player_team_stats[team]['triumphs'] for team in target_player_team_stats)
     total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
     for team in sorted(target_player_team_stats.keys()):
         picks = target_player_team_stats[team]['picks']
         triumphs = target_player_team_stats[team]['triumphs']
+        pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
         prob = (triumphs / picks * 100) if picks > 0 else 0
-        print(f"{team:<20} | {picks:>20} | {triumphs:>9} | {prob:>8.2f}%")
-    print("-" * 60)
-    print(f"{'TOTAL':<20} | {total_picks:>20} | {total_triumphs:>9} | {total_prob:>8.2f}%")
+        print(f"{team:<20} | {picks:>20} | {pick_pct:>9.2f}% | {triumphs:>9} | {prob:>8.2f}%")
+    print("-" * 75)
+    print(f"{'TOTAL':<20} | {total_picks:>20} | {100:>9.2f}% | {total_triumphs:>9} | {total_prob:>8.2f}%")
     
     print("\nTournament Winners:")
     print("Team | Wins | Win Percentage")
