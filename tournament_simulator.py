@@ -720,45 +720,130 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     
     # Team Statistics (All Players)
     print("\nTeam Statistics (All Players):")
-    print("Team | Picks on Target Date | % of Picks | Triumphs | Triumph Probability")
-    print("-" * 75)
+    
+    # Define column widths
+    team_width = 20
+    picks_width = 20
+    pct_width = 12
+    triumphs_width = 10
+    prob_width = 12
+    
+    # Create centered headers and separator line
+    headers = (
+        f"{'Team':^{team_width}} | "
+        f"{'Picks on Target Date':^{picks_width}} | "
+        f"{'% of Picks':^{pct_width}} | "
+        f"{'Triumphs':^{triumphs_width}} | "
+        f"{'Triumph Probability':^{prob_width}}"
+    )
+    separator = "-" * len(headers)
+    
+    # Print headers and separator
+    print(headers)
+    print(separator)
+    
+    # Calculate totals
     total_picks = sum(team_stats[team]['picks'] for team in team_stats)
     total_triumphs = sum(team_stats[team]['triumphs'] for team in team_stats)
     total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
+    
+    # Print each team's stats
     for team in sorted(team_stats.keys()):
         picks = team_stats[team]['picks']
         triumphs = team_stats[team]['triumphs']
         pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
         prob = (triumphs / picks * 100) if picks > 0 else 0
-        print(f"{team:<20} | {picks:>20} | {pick_pct:>9.2f}% | {triumphs:>9} | {prob:>8.2f}%")
-    print("-" * 75)
-    print(f"{'TOTAL':<20} | {total_picks:>20} | {100:>9.2f}% | {total_triumphs:>9} | {total_prob:>8.2f}%")
+        print(
+            f"{team:<{team_width}} | "
+            f"{picks:>{picks_width}} | "
+            f"{pick_pct:>{pct_width-1}.2f}% | "
+            f"{triumphs:>{triumphs_width}} | "
+            f"{prob:>{prob_width-1}.2f}%"
+        )
+    
+    # Print totals
+    print(separator)
+    print(
+        f"{'TOTAL':<{team_width}} | "
+        f"{total_picks:>{picks_width}} | "
+        f"{100:>{pct_width-1}.2f}% | "
+        f"{total_triumphs:>{triumphs_width}} | "
+        f"{total_prob:>{prob_width-1}.2f}%"
+    )
     
     # Team Statistics (Target Player)
-    print("\nTeam Statistics (Player {}):".format(target_player))
-    print("Team | Picks on Target Date | % of Picks | Triumphs | Triumph Probability")
-    print("-" * 75)
+    print(f"\nTeam Statistics (Player {target_player}):")
+    
+    # Print headers and separator again (reusing same format)
+    print(headers)
+    print(separator)
+    
+    # Calculate totals for target player
     total_picks = sum(target_player_team_stats[team]['picks'] for team in target_player_team_stats)
     total_triumphs = sum(target_player_team_stats[team]['triumphs'] for team in target_player_team_stats)
     total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
+    
+    # Print each team's stats for target player
     for team in sorted(target_player_team_stats.keys()):
         picks = target_player_team_stats[team]['picks']
         triumphs = target_player_team_stats[team]['triumphs']
         pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
         prob = (triumphs / picks * 100) if picks > 0 else 0
-        print(f"{team:<20} | {picks:>20} | {pick_pct:>9.2f}% | {triumphs:>9} | {prob:>8.2f}%")
-    print("-" * 75)
-    print(f"{'TOTAL':<20} | {total_picks:>20} | {100:>9.2f}% | {total_triumphs:>9} | {total_prob:>8.2f}%")
+        print(
+            f"{team:<{team_width}} | "
+            f"{picks:>{picks_width}} | "
+            f"{pick_pct:>{pct_width-1}.2f}% | "
+            f"{triumphs:>{triumphs_width}} | "
+            f"{prob:>{prob_width-1}.2f}%"
+        )
     
+    # Print totals
+    print(separator)
+    print(
+        f"{'TOTAL':<{team_width}} | "
+        f"{total_picks:>{picks_width}} | "
+        f"{100:>{pct_width-1}.2f}% | "
+        f"{total_triumphs:>{triumphs_width}} | "
+        f"{total_prob:>{prob_width-1}.2f}%"
+    )
+    
+    # Tournament Winners table
     print("\nTournament Winners:")
-    print("Team | Wins | Win Percentage")
-    print("-" * 40)
+    
+    # Define column widths
+    team_width = 20
+    wins_width = 8
+    pct_width = 14
+    
+    # Create centered headers and separator
+    headers = (
+        f"{'Team':^{team_width}} | "
+        f"{'Wins':^{wins_width}} | "
+        f"{'Win Percentage':^{pct_width}}"
+    )
+    separator = "-" * len(headers)
+    
+    # Print headers and separator
+    print(headers)
+    print(separator)
+    
+    # Print each team's tournament wins
     for team in sorted(tournament_winners.keys()):
         wins = tournament_winners[team]
         percentage = (wins / num_simulations) * 100
-        print(f"{team:20s} | {wins:4d} | {percentage:8.2f}%")
-    print("-" * 40)
-    print(f"TOTAL                | {num_simulations:4d} | {100:8.2f}%")
+        print(
+            f"{team:<{team_width}} | "
+            f"{wins:^{wins_width}} | "
+            f"{percentage:>{pct_width-1}.2f}%"
+        )
+    
+    # Print totals
+    print(separator)
+    print(
+        f"{'TOTAL':<{team_width}} | "
+        f"{num_simulations:^{wins_width}} | "
+        f"{100:>{pct_width-1}.2f}%"
+    )
 
 def main():
     parser = argparse.ArgumentParser(description='Simulate tournament and survivor pool')
