@@ -704,7 +704,12 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
                 else:
                     target_player_team_stats[pick]['picks'] += 1
     
-    # Print statistics
+    # After all simulations, print statistics with teams_df
+    print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners, target_player, teams_df)
+
+def print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners, target_player, teams_df):
+    """Print all statistics tables with formatting and team seeds."""
+    # Player Statistics
     print("\nPlayer Statistics:")
     print("Player ID | Picks on Target Date | Total Triumphs | Triumph Probability")
     print("-" * 75)
@@ -722,7 +727,7 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     print("\nTeam Statistics (All Players):")
     
     # Define column widths
-    team_width = 20
+    team_width = 25  # Increased to accommodate seed info
     picks_width = 20
     pct_width = 12
     triumphs_width = 10
@@ -753,8 +758,18 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
         triumphs = team_stats[team]['triumphs']
         pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
         prob = (triumphs / picks * 100) if picks > 0 else 0
+        
+        # Get team seed
+        seed = None
+        team_row = teams_df[teams_df['teamName'] == team]
+        if not team_row.empty:
+            seed = team_row['seed'].iloc[0]
+        
+        # Format team name with seed if available
+        team_display = team if seed is None else f"{team} ({seed})"
+        
         print(
-            f"{team:<{team_width}} | "
+            f"{team_display:<{team_width}} | "
             f"{picks:>{picks_width}} | "
             f"{pick_pct:>{pct_width-1}.2f}% | "
             f"{triumphs:>{triumphs_width}} | "
@@ -789,8 +804,18 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
         triumphs = target_player_team_stats[team]['triumphs']
         pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
         prob = (triumphs / picks * 100) if picks > 0 else 0
+        
+        # Get team seed
+        seed = None
+        team_row = teams_df[teams_df['teamName'] == team]
+        if not team_row.empty:
+            seed = team_row['seed'].iloc[0]
+        
+        # Format team name with seed if available
+        team_display = team if seed is None else f"{team} ({seed})"
+        
         print(
-            f"{team:<{team_width}} | "
+            f"{team_display:<{team_width}} | "
             f"{picks:>{picks_width}} | "
             f"{pick_pct:>{pct_width-1}.2f}% | "
             f"{triumphs:>{triumphs_width}} | "
@@ -811,7 +836,7 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     print("\nTournament Winners:")
     
     # Define column widths
-    team_width = 20
+    team_width = 25  # Increased to accommodate seed info
     wins_width = 8
     pct_width = 14
     
@@ -831,8 +856,18 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     for team in sorted(tournament_winners.keys()):
         wins = tournament_winners[team]
         percentage = (wins / num_simulations) * 100
+        
+        # Get team seed
+        seed = None
+        team_row = teams_df[teams_df['teamName'] == team]
+        if not team_row.empty:
+            seed = team_row['seed'].iloc[0]
+        
+        # Format team name with seed if available
+        team_display = team if seed is None else f"{team} ({seed})"
+        
         print(
-            f"{team:<{team_width}} | "
+            f"{team_display:<{team_width}} | "
             f"{wins:^{wins_width}} | "
             f"{percentage:>{pct_width-1}.2f}%"
         )
