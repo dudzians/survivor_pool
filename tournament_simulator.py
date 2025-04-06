@@ -678,6 +678,9 @@ def run_simulations(num_simulations, target_player, target_date, variance_factor
         try:
             # Define a worker function for multiprocessing
             def run_single_simulation(i):
+                # Print simulation number
+                print(f"Running simulation {i+1}/{num_simulations}")
+                
                 # Set a unique random seed for each process
                 np.random.seed(int(time.time() * 1000000) % (2**32 - 1) + i)
                 
@@ -736,8 +739,8 @@ def run_simulations(num_simulations, target_player, target_date, variance_factor
     # Sequential processing if multiprocessing fails or is not used
     if not use_mp:
         for i in range(num_simulations):
-            if show_progress and i % 10 == 0:
-                print(f"Running simulation {i+1}/{num_simulations}")
+            # Always show which simulation is running
+            print(f"Running simulation {i+1}/{num_simulations}")
             
             # Create tournament simulator and survivor pool simulator
             tournament_sim = TournamentSimulator(teams_df, schedule_df, seed_boost_df, variance_factor)
