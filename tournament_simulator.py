@@ -4,6 +4,8 @@ from collections import defaultdict
 import argparse
 import random
 import csv
+import multiprocessing
+from functools import partial
 
 def load_seed_boosts(path='seed_boosts.csv'):
     boosts = {}
@@ -504,7 +506,54 @@ def get_next_date(current_date, schedule_df):
         return dates[current_idx + 1]
     return None
 
-def run_simulations(num_simulations, target_date, target_player, variance_factor):
+def run_single_simulation(sim_number, schedule_df, teams_df, picks_df, team_mapping, target_date, target_player, variance_factor):
+    """Run a single simulation and return the results"""
+    print(f"Running simulation {sim_number+1}")
+    
+    # Create new simulators for this simulation
+    tournament_sim = TournamentSimulator(schedule_df, teams_df, team_mapping)
+    survivor_sim = SurvivorPoolSimulator(schedule_df, teams_df, picks_df, variance_factor, target_date)
+    
+    # Run the simulation
+    survivor_sim.run_simulation(tournament_sim)
+    
+    # Ensure we have a winner set
+    if survivor_sim.winner is None:
+        # If simulation ended but no winner was recorded, determine one
+        survivor_sim.winner = survivor_sim.determine_winner()
+        # Record triumph for the winner if they picked on target date
+        if survivor_sim.winner is not None and survivor_sim.winner in survivor_sim.target_date_picks:
+            survivor_sim.target_date_triumphs.add(survivor_sim.winner)
+    
+    # Make sure we simulate the final game if it hasn't been simulated yet
+    final_game = schedule_df[schedule_df['gameID'] == 'FINAL'].iloc[0]
+    if 'FINAL' not in tournament_sim.winners:
+        winner = tournament_sim.simulate_game('FINAL')
+    else:
+        winner = tournament_sim.winners['FINAL']
+    
+    # Prepare results to return
+    results = {
+        'tournament_winner': winner,
+        'player_picks': {},  # {player_id: picked_team}
+        'player_triumphs': set(),  # set of player_ids who triumphed
+        'target_player_pick': None  # What the target player picked
+    }
+    
+    # Record statistics
+    for player_id, pick in survivor_sim.target_date_picks.items():
+        results['player_picks'][player_id] = pick
+        
+        if player_id in survivor_sim.target_date_triumphs:
+            results['player_triumphs'].add(player_id)
+        
+        if player_id == target_player:
+            results['target_player_pick'] = pick
+    
+    return results
+
+def run_simulations(num_simulations, target_date, target_player, variance_factor, use_multiprocessing=True, num_processes=None):
+    # Load data once
     schedule_df, teams_df, picks_df, team_mapping = load_data()
     
     # Initialize counters for statistics
@@ -513,74 +562,147 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     target_player_team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
     tournament_winners = defaultdict(int)
     
-    for sim in range(num_simulations):
-        print(f"Running simulation {sim + 1}/{num_simulations}")
+    if use_multiprocessing and num_simulations > 1:
+        # Determine number of processes to use
+        if num_processes is None:
+            num_processes = min(multiprocessing.cpu_count(), num_simulations)
         
-        # Create new simulators for this simulation
-        tournament_sim = TournamentSimulator(schedule_df, teams_df, team_mapping)
-        survivor_sim = SurvivorPoolSimulator(schedule_df, teams_df, picks_df, variance_factor, target_date)
+        print(f"Running {num_simulations} simulations using {num_processes} processes")
         
-        # Run the simulation
-        survivor_sim.run_simulation(tournament_sim)
+        # Create a partial function with fixed arguments
+        worker_func = partial(
+            run_single_simulation,
+            schedule_df=schedule_df,
+            teams_df=teams_df,
+            picks_df=picks_df,
+            team_mapping=team_mapping,
+            target_date=target_date,
+            target_player=target_player,
+            variance_factor=variance_factor
+        )
         
-        # Ensure we have a winner set
-        if survivor_sim.winner is None:
-            # If simulation ended but no winner was recorded, determine one
-            survivor_sim.winner = survivor_sim.determine_winner()
-            # Record triumph for the winner if they picked on target date
-            if survivor_sim.winner is not None and survivor_sim.winner in survivor_sim.target_date_picks:
-                survivor_sim.target_date_triumphs.add(survivor_sim.winner)
+        # Create a pool of worker processes
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            # Map the worker function to the range of simulation indices
+            results = pool.map(worker_func, range(num_simulations))
         
-        # Make sure we simulate the final game if it hasn't been simulated yet
-        final_game = schedule_df[schedule_df['gameID'] == 'FINAL'].iloc[0]
-        if 'FINAL' not in tournament_sim.winners:
-            winner = tournament_sim.simulate_game('FINAL')
-        else:
-            winner = tournament_sim.winners['FINAL']
+        # Process results from all simulations
+        for sim_result in results:
+            # Record tournament winner
+            tournament_winners[sim_result['tournament_winner']] += 1
             
-        # Record tournament winner
-        tournament_winners[winner] += 1
-        
-        # Record statistics
-        for player_id, pick in survivor_sim.target_date_picks.items():
-            player_stats[player_id]['picks'] += 1
-            
-            # Handle combined picks format
-            if ',' in pick:
-                picks = [p.strip() for p in pick.split(',')]
-                for team in picks:
-                    team_stats[team]['picks'] += 1
-            else:
-                team_stats[pick]['picks'] += 1
-            
-            if player_id in survivor_sim.target_date_triumphs:
-                player_stats[player_id]['triumphs'] += 1
+            # Process player picks and triumphs
+            for player_id, pick in sim_result['player_picks'].items():
+                player_stats[player_id]['picks'] += 1
+                
                 # Handle combined picks format
                 if ',' in pick:
                     picks = [p.strip() for p in pick.split(',')]
                     for team in picks:
-                        team_stats[team]['triumphs'] += 1
+                        team_stats[team]['picks'] += 1
                 else:
-                    team_stats[pick]['triumphs'] += 1
+                    team_stats[pick]['picks'] += 1
                 
-                if player_id == target_player:
+                if player_id in sim_result['player_triumphs']:
+                    player_stats[player_id]['triumphs'] += 1
+                    
                     # Handle combined picks format
                     if ',' in pick:
                         picks = [p.strip() for p in pick.split(',')]
                         for team in picks:
-                            target_player_team_stats[team]['triumphs'] += 1
+                            team_stats[team]['triumphs'] += 1
                     else:
-                        target_player_team_stats[pick]['triumphs'] += 1
-        
-        if target_player in survivor_sim.target_date_picks:
-            pick = survivor_sim.target_date_picks[target_player]
-            # Handle combined picks format
-            if ',' in pick:
-                picks = [p.strip() for p in pick.split(',')]
-                for team in picks:
-                    target_player_team_stats[team]['picks'] += 1
+                        team_stats[pick]['triumphs'] += 1
+                    
+                    if player_id == target_player:
+                        # Handle combined picks format
+                        if ',' in pick:
+                            picks = [p.strip() for p in pick.split(',')]
+                            for team in picks:
+                                target_player_team_stats[team]['triumphs'] += 1
+                        else:
+                            target_player_team_stats[pick]['triumphs'] += 1
+            
+            # Process target player's pick
+            if sim_result['target_player_pick']:
+                pick = sim_result['target_player_pick']
+                # Handle combined picks format
+                if ',' in pick:
+                    picks = [p.strip() for p in pick.split(',')]
+                    for team in picks:
+                        target_player_team_stats[team]['picks'] += 1
+                else:
+                    target_player_team_stats[pick]['picks'] += 1
+    else:
+        # Original sequential implementation
+        for sim in range(num_simulations):
+            print(f"Running simulation {sim + 1}/{num_simulations}")
+            
+            # Create new simulators for this simulation
+            tournament_sim = TournamentSimulator(schedule_df, teams_df, team_mapping)
+            survivor_sim = SurvivorPoolSimulator(schedule_df, teams_df, picks_df, variance_factor, target_date)
+            
+            # Run the simulation
+            survivor_sim.run_simulation(tournament_sim)
+            
+            # Ensure we have a winner set
+            if survivor_sim.winner is None:
+                # If simulation ended but no winner was recorded, determine one
+                survivor_sim.winner = survivor_sim.determine_winner()
+                # Record triumph for the winner if they picked on target date
+                if survivor_sim.winner is not None and survivor_sim.winner in survivor_sim.target_date_picks:
+                    survivor_sim.target_date_triumphs.add(survivor_sim.winner)
+            
+            # Make sure we simulate the final game if it hasn't been simulated yet
+            final_game = schedule_df[schedule_df['gameID'] == 'FINAL'].iloc[0]
+            if 'FINAL' not in tournament_sim.winners:
+                winner = tournament_sim.simulate_game('FINAL')
             else:
-                target_player_team_stats[pick]['picks'] += 1
+                winner = tournament_sim.winners['FINAL']
+                
+            # Record tournament winner
+            tournament_winners[winner] += 1
+            
+            # Record statistics
+            for player_id, pick in survivor_sim.target_date_picks.items():
+                player_stats[player_id]['picks'] += 1
+                
+                # Handle combined picks format
+                if ',' in pick:
+                    picks = [p.strip() for p in pick.split(',')]
+                    for team in picks:
+                        team_stats[team]['picks'] += 1
+                else:
+                    team_stats[pick]['picks'] += 1
+                
+                if player_id in survivor_sim.target_date_triumphs:
+                    player_stats[player_id]['triumphs'] += 1
+                    # Handle combined picks format
+                    if ',' in pick:
+                        picks = [p.strip() for p in pick.split(',')]
+                        for team in picks:
+                            team_stats[team]['triumphs'] += 1
+                    else:
+                        team_stats[pick]['triumphs'] += 1
+                    
+                    if player_id == target_player:
+                        # Handle combined picks format
+                        if ',' in pick:
+                            picks = [p.strip() for p in pick.split(',')]
+                            for team in picks:
+                                target_player_team_stats[team]['triumphs'] += 1
+                        else:
+                            target_player_team_stats[pick]['triumphs'] += 1
+            
+            if target_player in survivor_sim.target_date_picks:
+                pick = survivor_sim.target_date_picks[target_player]
+                # Handle combined picks format
+                if ',' in pick:
+                    picks = [p.strip() for p in pick.split(',')]
+                    for team in picks:
+                        target_player_team_stats[team]['picks'] += 1
+                else:
+                    target_player_team_stats[pick]['picks'] += 1
     
     # Print statistics
     print("\nPlayer Statistics:")
@@ -642,10 +764,21 @@ def main():
     parser.add_argument('--target-date', type=str, required=True, help='Target date to analyze (MM/DD/YYYY)')
     parser.add_argument('--target-player', type=int, required=True, help='Target player ID to analyze')
     parser.add_argument('--variance-factor', type=int, default=5, help='How much random variation in picks (1-10)')
+    parser.add_argument('--no-multiprocessing', action='store_true', help='Disable multiprocessing')
+    parser.add_argument('--processes', type=int, help='Number of processes to use (default: number of CPU cores)')
     args = parser.parse_args()
 
     # Run simulations
-    run_simulations(args.simulations, args.target_date, args.target_player, args.variance_factor)
+    run_simulations(
+        args.simulations, 
+        args.target_date, 
+        args.target_player, 
+        args.variance_factor,
+        use_multiprocessing=not args.no_multiprocessing,
+        num_processes=args.processes
+    )
 
 if __name__ == "__main__":
+    # This is needed for multiprocessing to work correctly on Windows
+    multiprocessing.freeze_support()
     main()
