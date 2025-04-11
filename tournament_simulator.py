@@ -508,68 +508,59 @@ def get_next_date(current_date, schedule_df):
 
 def run_single_simulation(sim_number, schedule_df, teams_df, picks_df, team_mapping, target_date, target_player, variance_factor):
     """Run a single simulation and return the results"""
-    print(f"Running simulation {sim_number+1}")
+    # Don't print progress here if running in parallel
+    # print(f"Running simulation {sim_number+1}") 
     
     # Create new simulators for this simulation
-    tournament_sim = TournamentSimulator(schedule_df, teams_df, team_mapping)
-    survivor_sim = SurvivorPoolSimulator(schedule_df, teams_df, picks_df, variance_factor, target_date)
+    tournament_sim = TournamentSimulator(schedule_df.copy(), teams_df.copy(), team_mapping.copy())
+    # Pass copies to avoid potential state issues across processes if DataFrames are modified (though they shouldn't be here)
+    survivor_sim = SurvivorPoolSimulator(schedule_df.copy(), teams_df.copy(), picks_df.copy(), variance_factor, target_date)
     
     # Run the simulation
     survivor_sim.run_simulation(tournament_sim)
     
-    # Ensure we have a winner set
+    # Ensure we have a winner set for the survivor pool
     if survivor_sim.winner is None:
-        # If simulation ended but no winner was recorded, determine one
         survivor_sim.winner = survivor_sim.determine_winner()
-        # Record triumph for the winner if they picked on target date
         if survivor_sim.winner is not None and survivor_sim.winner in survivor_sim.target_date_picks:
             survivor_sim.target_date_triumphs.add(survivor_sim.winner)
     
-    # Make sure we simulate the final game if it hasn't been simulated yet
-    final_game = schedule_df[schedule_df['gameID'] == 'FINAL'].iloc[0]
-    if 'FINAL' not in tournament_sim.winners:
-        winner = tournament_sim.simulate_game('FINAL')
-    else:
-        winner = tournament_sim.winners['FINAL']
-    
-    # Prepare results to return
-    results = {
-        'tournament_winner': winner,
-        'player_picks': {},  # {player_id: picked_team}
-        'player_triumphs': set(),  # set of player_ids who triumphed
-        'target_player_pick': None  # What the target player picked
+    # Ensure the final tournament game is simulated
+    final_game_id = 'FINAL' # Assuming 'FINAL' is the gameID for the championship
+    if final_game_id not in tournament_sim.winners:
+        # Find the final game in the schedule to ensure it exists
+        if not schedule_df[schedule_df['gameID'] == final_game_id].empty:
+             tournament_sim.simulate_game(final_game_id)
+        else:
+            print(f"Warning: Game ID '{final_game_id}' not found in schedule.csv during simulation {sim_number+1}.")
+
+
+    # Prepare survivor pool results to return
+    survivor_results = {
+        'player_picks': survivor_sim.target_date_picks.copy(),
+        'player_triumphs': survivor_sim.target_date_triumphs.copy(),
+        'target_player_pick': survivor_sim.target_date_picks.get(target_player)
     }
-    
-    # Record statistics
-    for player_id, pick in survivor_sim.target_date_picks.items():
-        results['player_picks'][player_id] = pick
-        
-        if player_id in survivor_sim.target_date_triumphs:
-            results['player_triumphs'].add(player_id)
-        
-        if player_id == target_player:
-            results['target_player_pick'] = pick
-    
-    return results
+
+    # Also return the complete tournament results
+    tournament_results = tournament_sim.winners.copy()
+
+    return survivor_results, tournament_results
 
 def run_simulations(num_simulations, target_date, target_player, variance_factor, use_multiprocessing=True, num_processes=None):
     # Load data once
     schedule_df, teams_df, picks_df, team_mapping = load_data()
-    
-    # Initialize counters for statistics
-    player_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
-    team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
-    target_player_team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
-    tournament_winners = defaultdict(int)
-    
+
+    # List to store results from each simulation
+    simulation_results_list = []
+    all_tournament_winners_dicts = [] # Store tournament outcomes for consistency check
+
     if use_multiprocessing and num_simulations > 1:
-        # Determine number of processes to use
         if num_processes is None:
             num_processes = min(multiprocessing.cpu_count(), num_simulations)
         
         print(f"Running {num_simulations} simulations using {num_processes} processes")
         
-        # Create a partial function with fixed arguments
         worker_func = partial(
             run_single_simulation,
             schedule_df=schedule_df,
@@ -581,133 +572,137 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
             variance_factor=variance_factor
         )
         
-        # Create a pool of worker processes
         with multiprocessing.Pool(processes=num_processes) as pool:
-            # Map the worker function to the range of simulation indices
-            results = pool.map(worker_func, range(num_simulations))
+            # Map the worker function and collect results
+            # Each result is a tuple: (survivor_results, tournament_results)
+            collected_results = pool.map(worker_func, range(num_simulations))
         
-        # Process results from all simulations
-        for sim_result in results:
-            # Record tournament winner
-            tournament_winners[sim_result['tournament_winner']] += 1
-            
-            # Process player picks and triumphs
-            for player_id, pick in sim_result['player_picks'].items():
-                player_stats[player_id]['picks'] += 1
-                
-                # Handle combined picks format
-                if ',' in pick:
-                    picks = [p.strip() for p in pick.split(',')]
-                    for team in picks:
-                        team_stats[team]['picks'] += 1
-                else:
-                    team_stats[pick]['picks'] += 1
-                
-                if player_id in sim_result['player_triumphs']:
-                    player_stats[player_id]['triumphs'] += 1
-                    
-                    # Handle combined picks format
-                    if ',' in pick:
-                        picks = [p.strip() for p in pick.split(',')]
-                        for team in picks:
-                            team_stats[team]['triumphs'] += 1
-                    else:
-                        team_stats[pick]['triumphs'] += 1
-                    
-                    if player_id == target_player:
-                        # Handle combined picks format
-                        if ',' in pick:
-                            picks = [p.strip() for p in pick.split(',')]
-                            for team in picks:
-                                target_player_team_stats[team]['triumphs'] += 1
-                        else:
-                            target_player_team_stats[pick]['triumphs'] += 1
-            
-            # Process target player's pick
-            if sim_result['target_player_pick']:
-                pick = sim_result['target_player_pick']
-                # Handle combined picks format
-                if ',' in pick:
-                    picks = [p.strip() for p in pick.split(',')]
-                    for team in picks:
-                        target_player_team_stats[team]['picks'] += 1
-                else:
-                    target_player_team_stats[pick]['picks'] += 1
+        # Separate the results
+        for survivor_res, tournament_res in collected_results:
+             simulation_results_list.append(survivor_res)
+             all_tournament_winners_dicts.append(tournament_res)
+
     else:
-        # Original sequential implementation
+        print(f"Running {num_simulations} simulations sequentially")
         for sim in range(num_simulations):
             print(f"Running simulation {sim + 1}/{num_simulations}")
-            
-            # Create new simulators for this simulation
-            tournament_sim = TournamentSimulator(schedule_df, teams_df, team_mapping)
-            survivor_sim = SurvivorPoolSimulator(schedule_df, teams_df, picks_df, variance_factor, target_date)
-            
-            # Run the simulation
-            survivor_sim.run_simulation(tournament_sim)
-            
-            # Ensure we have a winner set
-            if survivor_sim.winner is None:
-                # If simulation ended but no winner was recorded, determine one
-                survivor_sim.winner = survivor_sim.determine_winner()
-                # Record triumph for the winner if they picked on target date
-                if survivor_sim.winner is not None and survivor_sim.winner in survivor_sim.target_date_picks:
-                    survivor_sim.target_date_triumphs.add(survivor_sim.winner)
-            
-            # Make sure we simulate the final game if it hasn't been simulated yet
-            final_game = schedule_df[schedule_df['gameID'] == 'FINAL'].iloc[0]
-            if 'FINAL' not in tournament_sim.winners:
-                winner = tournament_sim.simulate_game('FINAL')
-            else:
-                winner = tournament_sim.winners['FINAL']
+            survivor_res, tournament_res = run_single_simulation(
+                sim, schedule_df, teams_df, picks_df, team_mapping, 
+                target_date, target_player, variance_factor
+            )
+            simulation_results_list.append(survivor_res)
+            all_tournament_winners_dicts.append(tournament_res)
+
+    # --- Test for Deterministic Tournament ---
+    if len(all_tournament_winners_dicts) > 1:
+        first_winners_dict = all_tournament_winners_dicts[0]
+        # Sort the dictionary items for consistent comparison
+        sorted_first_winners = sorted(first_winners_dict.items())
+        identical = True
+        for i in range(1, len(all_tournament_winners_dicts)):
+            current_winners_dict = all_tournament_winners_dicts[i]
+            sorted_current_winners = sorted(current_winners_dict.items())
+            if sorted_current_winners != sorted_first_winners:
+                identical = False
+                print(f"\n*** TEST FAILED: Tournament outcomes differ between simulation 1 and simulation {i+1}! ***")
                 
-            # Record tournament winner
-            tournament_winners[winner] += 1
-            
-            # Record statistics
-            for player_id, pick in survivor_sim.target_date_picks.items():
-                player_stats[player_id]['picks'] += 1
+                # Find and print differences
+                diff_keys = set(first_winners_dict.keys()) ^ set(current_winners_dict.keys())
+                if diff_keys:
+                    print(f"  Differing game keys (might indicate missing games in one sim): {diff_keys}")
                 
-                # Handle combined picks format
-                if ',' in pick:
+                mismatched_games = []
+                # Compare common keys
+                common_keys = set(first_winners_dict.keys()) & set(current_winners_dict.keys())
+                for key in sorted(common_keys): # Sort keys for consistent output order
+                    if first_winners_dict[key] != current_winners_dict[key]:
+                         mismatched_games.append(f"  Game '{key}': Sim 1='{first_winners_dict[key]}', Sim {i+1}='{current_winners_dict[key]}'")
+                
+                if mismatched_games:
+                     print("  Mismatched winners for the same game:")
+                     for mismatch in mismatched_games:
+                          print(mismatch)
+                
+                break # Stop after first difference found
+        if identical:
+            print("\n--- Test Passed: All tournament outcomes were identical across simulations. ---")
+        else:
+             # If failed, maybe print summary of first dict for reference
+             print("\nTournament outcome from Simulation 1 for reference:")
+             for game_id, winner in sorted_first_winners:
+                  print(f"  Game '{game_id}': Winner='{winner}'")
+    elif len(all_tournament_winners_dicts) == 1:
+         print("\n--- Test Info: Only one simulation run, cannot compare tournament outcomes. ---")
+    else:
+         print("\n--- Test Warning: No tournament outcomes collected. ---")
+    # --- End Test ---
+
+    # Initialize counters for statistics aggregation
+    player_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
+    team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
+    target_player_team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
+    # Aggregate tournament winners from the first simulation's results (since they should be identical if test passed)
+    tournament_winners_agg = defaultdict(int)
+    if all_tournament_winners_dicts:
+         final_tournament_winners = all_tournament_winners_dicts[0] # Use the first one
+         # Need to count occurrences of the overall winner (last game)
+         # Let's assume the final game ID is 'FINAL'
+         final_game_winner = final_tournament_winners.get('FINAL', 'Unknown')
+         # We need the count of final winners across simulations, not just one dict
+         # Let's recalculate this based on the list of dicts
+         final_winners_list = [d.get('FINAL', 'Unknown') for d in all_tournament_winners_dicts]
+         tournament_winners_agg = defaultdict(int)
+         for winner in final_winners_list:
+              tournament_winners_agg[winner] += 1
+
+
+    # Process results from all simulations for survivor pool stats
+    for sim_result in simulation_results_list:
+        # Process player picks and triumphs
+        for player_id, pick in sim_result['player_picks'].items():
+            player_stats[player_id]['picks'] += 1
+            
+            # Handle combined picks format (assuming pick is a string)
+            if isinstance(pick, str) and ',' in pick:
+                picks = [p.strip() for p in pick.split(',')]
+                for team in picks:
+                    team_stats[team]['picks'] += 1
+            elif pick: # Check if pick is not None or empty
+                 team_stats[pick]['picks'] += 1
+            
+            if player_id in sim_result['player_triumphs']:
+                player_stats[player_id]['triumphs'] += 1
+                
+                if isinstance(pick, str) and ',' in pick:
                     picks = [p.strip() for p in pick.split(',')]
                     for team in picks:
-                        team_stats[team]['picks'] += 1
-                else:
-                    team_stats[pick]['picks'] += 1
+                        team_stats[team]['triumphs'] += 1
+                elif pick:
+                    team_stats[pick]['triumphs'] += 1
                 
-                if player_id in survivor_sim.target_date_triumphs:
-                    player_stats[player_id]['triumphs'] += 1
-                    # Handle combined picks format
-                    if ',' in pick:
+                if player_id == target_player:
+                    if isinstance(pick, str) and ',' in pick:
                         picks = [p.strip() for p in pick.split(',')]
                         for team in picks:
-                            team_stats[team]['triumphs'] += 1
-                    else:
-                        team_stats[pick]['triumphs'] += 1
-                    
-                    if player_id == target_player:
-                        # Handle combined picks format
-                        if ',' in pick:
-                            picks = [p.strip() for p in pick.split(',')]
-                            for team in picks:
-                                target_player_team_stats[team]['triumphs'] += 1
-                        else:
-                            target_player_team_stats[pick]['triumphs'] += 1
-            
-            if target_player in survivor_sim.target_date_picks:
-                pick = survivor_sim.target_date_picks[target_player]
-                # Handle combined picks format
-                if ',' in pick:
-                    picks = [p.strip() for p in pick.split(',')]
-                    for team in picks:
-                        target_player_team_stats[team]['picks'] += 1
-                else:
-                    target_player_team_stats[pick]['picks'] += 1
-    
-    # After all simulations, print statistics with teams_df
-    print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners, target_player, teams_df)
+                             target_player_team_stats[team]['triumphs'] += 1
+                    elif pick:
+                         target_player_team_stats[pick]['triumphs'] += 1
+        
+        # Process target player's pick for their specific stats
+        if sim_result['target_player_pick']:
+            pick = sim_result['target_player_pick']
+            if isinstance(pick, str) and ',' in pick:
+                picks = [p.strip() for p in pick.split(',')]
+                for team in picks:
+                     target_player_team_stats[team]['picks'] += 1
+            elif pick:
+                 target_player_team_stats[pick]['picks'] += 1
 
-def print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners, target_player, teams_df):
+    # Now print statistics using the aggregated data
+    print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners_agg, target_player, teams_df)
+
+
+def print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners_agg, target_player, teams_df):
     """Print all statistics tables with formatting and team seeds."""
     # Player Statistics
     print("\nPlayer Statistics:")
@@ -852,9 +847,9 @@ def print_statistics(num_simulations, player_stats, team_stats, target_player_te
     print(headers)
     print(separator)
     
-    # Print each team's tournament wins
-    for team in sorted(tournament_winners.keys()):
-        wins = tournament_winners[team]
+    # Print each team's tournament wins using the aggregated dictionary
+    for team in sorted(tournament_winners_agg.keys()):
+        wins = tournament_winners_agg[team]
         percentage = (wins / num_simulations) * 100
         
         # Get team seed
