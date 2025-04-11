@@ -528,12 +528,10 @@ def run_single_simulation(sim_number, schedule_df, teams_df, picks_df, team_mapp
     # Ensure the final tournament game is simulated
     final_game_id = 'FINAL' # Assuming 'FINAL' is the gameID for the championship
     if final_game_id not in tournament_sim.winners:
-        # Find the final game in the schedule to ensure it exists
         if not schedule_df[schedule_df['gameID'] == final_game_id].empty:
              tournament_sim.simulate_game(final_game_id)
         else:
             print(f"Warning: Game ID '{final_game_id}' not found in schedule.csv during simulation {sim_number+1}.")
-
 
     # Prepare survivor pool results to return
     survivor_results = {
@@ -596,7 +594,6 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     # --- Test for Deterministic Tournament ---
     if len(all_tournament_winners_dicts) > 1:
         first_winners_dict = all_tournament_winners_dicts[0]
-        # Sort the dictionary items for consistent comparison
         sorted_first_winners = sorted(first_winners_dict.items())
         identical = True
         for i in range(1, len(all_tournament_winners_dicts)):
@@ -641,20 +638,12 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
     player_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
     team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
     target_player_team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
-    # Aggregate tournament winners from the first simulation's results (since they should be identical if test passed)
+    # Aggregate tournament winners from the collected results
     tournament_winners_agg = defaultdict(int)
     if all_tournament_winners_dicts:
-         final_tournament_winners = all_tournament_winners_dicts[0] # Use the first one
-         # Need to count occurrences of the overall winner (last game)
-         # Let's assume the final game ID is 'FINAL'
-         final_game_winner = final_tournament_winners.get('FINAL', 'Unknown')
-         # We need the count of final winners across simulations, not just one dict
-         # Let's recalculate this based on the list of dicts
          final_winners_list = [d.get('FINAL', 'Unknown') for d in all_tournament_winners_dicts]
-         tournament_winners_agg = defaultdict(int)
          for winner in final_winners_list:
               tournament_winners_agg[winner] += 1
-
 
     # Process results from all simulations for survivor pool stats
     for sim_result in simulation_results_list:
@@ -700,7 +689,6 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
 
     # Now print statistics using the aggregated data
     print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners_agg, target_player, teams_df)
-
 
 def print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners_agg, target_player, teams_df):
     """Print all statistics tables with formatting and team seeds."""
