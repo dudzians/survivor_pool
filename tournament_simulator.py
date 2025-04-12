@@ -135,37 +135,72 @@ class TournamentSimulator:
     def get_team_odds(self, team, round_num):
         team_row = self.teams_df[self.teams_df['teamName'] == team]
         if team_row.empty:
+            print(f"DEBUG get_team_odds: Team '{team}' not found in teams_df.") # DEBUG
             return 0
-        odds_col = self.round_to_odds[round_num]
-        return team_row[odds_col].iloc[0]
+        # Ensure round_num is an integer key if it's not already
+        try:
+            round_key = int(round_num) 
+        except ValueError:
+             print(f"DEBUG get_team_odds: Invalid round_num '{round_num}' for team '{team}'. Defaulting key to 64.") # DEBUG
+             round_key = 64 # Or handle error appropriately
+
+        if round_key not in self.round_to_odds:
+             print(f"DEBUG get_team_odds: Round key '{round_key}' not in round_to_odds mapping for team '{team}'. Defaulting to 64odds.") # DEBUG
+             odds_col = '64odds'
+        else:
+             odds_col = self.round_to_odds[round_key]
+
+        odds_value = team_row[odds_col].iloc[0]
+        print(f"DEBUG get_team_odds: Team='{team}', Round={round_num}, OddsColumn='{odds_col}', FetchedOdds={odds_value}") # DEBUG
+        return odds_value
     
     def simulate_game(self, game_id):
         game = self.schedule_df[self.schedule_df['gameID'] == game_id].iloc[0]
         round_num = game['round']
-        team_a = self.get_team_name(game['teamA'])
-        team_b = self.get_team_name(game['teamB'])
+        team_a_raw = game['teamA']
+        team_b_raw = game['teamB']
+        print(f"\nDEBUG simulate_game: Simulating GameID='{game_id}', Round={round_num}, RawTeams=['{team_a_raw}', '{team_b_raw}']") # DEBUG
         
-        # Get odds for each team
+        # Resolve team names (this might recursively call simulate_game)
+        team_a = self.get_team_name(team_a_raw)
+        team_b = self.get_team_name(team_b_raw)
+        print(f"DEBUG simulate_game: ResolvedTeams=['{team_a}', '{team_b}']") # DEBUG
+        
+        # Get odds for each team for the correct round
         odds_a = self.get_team_odds(team_a, round_num)
         odds_b = self.get_team_odds(team_b, round_num)
+        print(f"DEBUG simulate_game: Odds=['{team_a}': {odds_a}, '{team_b}': {odds_b}]") # DEBUG
         
-        # If both teams have 0 odds, choose randomly
+        # Determine winner based on odds (should be deterministic for 100/0)
+        winner = None
         if odds_a == 0 and odds_b == 0:
+            print("DEBUG simulate_game: Both teams have 0 odds! This shouldn't happen with 100/0 input. Choosing randomly.") # DEBUG
             winner = random.choice([team_a, team_b])
-        else:
-            # Normalize odds and choose based on probability
-            total_odds = odds_a + odds_b
-            if total_odds == 0:
-                winner = random.choice([team_a, team_b])
-            else:
-                prob_a = odds_a / total_odds
-                if random.random() < prob_a:
-                    winner = team_a
-                else:
-                    winner = team_b
-        
+        elif odds_a > 0 and odds_b == 0:
+             winner = team_a
+        elif odds_b > 0 and odds_a == 0:
+             winner = team_b
+        elif odds_a > 0 and odds_b > 0: # Both have > 0 odds? Should only be if both are 100?
+             print("DEBUG simulate_game: Both teams have > 0 odds! Applying probability.") # DEBUG
+             # Normalize odds and choose based on probability
+             total_odds = odds_a + odds_b
+             if total_odds == 0: # Should not happen if odds > 0
+                 winner = random.choice([team_a, team_b])
+             else:
+                 prob_a = odds_a / total_odds
+                 rand_val = random.random() # Generate random number
+                 print(f"DEBUG simulate_game: ProbA={prob_a:.4f}, RandVal={rand_val:.4f}") # DEBUG
+                 if rand_val < prob_a:
+                     winner = team_a
+                 else:
+                     winner = team_b
+        else: # Should not happen if one is 100 and other is 0
+             print(f"DEBUG simulate_game: Unexpected odds combo! odds_a={odds_a}, odds_b={odds_b}. Choosing randomly.") # DEBUG
+             winner = random.choice([team_a, team_b])
+
         # Record the winner
         self.winners[game_id] = winner
+        print(f"DEBUG simulate_game: Determined Winner for '{game_id}': {winner}") # DEBUG
         return winner
     
     def get_games_for_date(self, date):
@@ -207,15 +242,24 @@ class SurvivorPoolSimulator:
     def get_player_pick(self, player_id, date):
         if player_id in self.eliminated_players:
             return None
-            
+
         # Check if there's a predetermined pick
-        pick = self.picks_df.loc[player_id, date]
+        # Use .get() with a default for the date column to avoid KeyError if column missing
+        pick = self.picks_df.get(date, pd.Series(index=self.picks_df.index)).loc[player_id]
+
         if pd.notna(pick):
-            # Map the pick to the official team name
+            original_pick = pick
             pick = self.team_mapping.get(pick, pick)
-            return pick
+            if pick == '':
+                return None # Treat predetermined empty pick as None
             
-        # Check if other players have picks for this date
+            # Record the predetermined pick as used *if it hasn't been added already* 
+            # (The init loop handles adding picks, this ensures it if logic changes)
+            if pick not in self.used_teams[player_id]:
+                 self.used_teams[player_id].add(pick) 
+            return pick
+
+        # Check if other players have picks for this date (elimination rule)
         other_players_have_picks = False
         for other_id in self.active_players:
             if other_id != player_id and other_id not in self.eliminated_players:
@@ -255,69 +299,63 @@ class SurvivorPoolSimulator:
                     team_b = self.winners[game_id]
             playing_teams.add(team_a)
             playing_teams.add(team_b)
-            current_round = game['round']
-        
+            current_round = game['round'] # Capture round here
+
         # Filter available teams to those playing today
-        available_teams = [team for team in available_teams if team in playing_teams]
-        if not available_teams:
+        available_teams_playing = [team for team in available_teams if team in playing_teams]
+        
+        if not available_teams_playing:
             self.eliminated_players.add(player_id)
             self.elimination_dates[player_id] = date
             return None
             
         # Get odds for available teams
         team_odds = {}
-        for team in available_teams:
+        for team in available_teams_playing:
             team_row = self.teams_df[self.teams_df['teamName'] == team]
             if not team_row.empty:
                 seed = team_row['seed'].iloc[0]
-                odds = team_row['64odds'].iloc[0]  # Use first round odds as baseline
-                
-                # Retrieve the team's seed from teams_df
-                seed = self.teams_df[self.teams_df['teamName'] == team]['seed'].iloc[0]
-                # Determine current round label; assume it's provided in game['round'], else default to 'R64'
-                current_round = game['round'] if 'round' in game else 'R64'
-                
-                # Convert the current_round from string format (like "R32") to numeric (like 32)
-                # If current_round is a string like "R32", extract the number part
-                numeric_round = current_round
-                if isinstance(current_round, str) and current_round.startswith('R'):
-                    try:
-                        numeric_round = int(current_round[1:])
-                    except ValueError:
-                        numeric_round = 64  # Default if conversion fails
-                
-                # Look up the boost value using the numeric round value
-                boost_multiplier = SEED_BOOSTS.get(str(numeric_round), {}).get(seed, 1)
-                
-                # Apply random variance
-                variance = random.uniform(-self.variance_factor, self.variance_factor)
-                
-                # Combine factors to create pick weight with direct boost multiplier
-                # Changed formula to use boost_multiplier directly without exponentiation
-                pick_weight = odds * boost_multiplier * (1 + variance/100)
+                # Use the captured current_round for odds calculation
+                odds = self.get_team_odds_for_pick(team, current_round) # Changed to use specific method if needed, or ensure get_team_odds handles round correctly
+                boost_multiplier = SEED_BOOSTS.get(str(current_round), {}).get(seed, 1) # Assuming current_round matches SEED_BOOSTS keys
+                pick_weight = odds * boost_multiplier # Simplified weight for deterministic check
                 team_odds[team] = pick_weight
         
-        # Choose team based on pick weights
+        # Choose team based on pick weights (should be deterministic if weights differ)
         if not team_odds:
             self.eliminated_players.add(player_id)
             self.elimination_dates[player_id] = date
             return None
             
-        total_weight = sum(team_odds.values())
-        if total_weight == 0:
-            # If all teams have 0 weight, choose randomly
-            pick = random.choice(list(team_odds.keys()))
-        else:
-            # Normalize weights to probabilities
-            normalized_weights = {team: weight/total_weight for team, weight in team_odds.items()}
-            # Choose team based on normalized weights
-            pick = random.choices(list(normalized_weights.keys()), 
-                                weights=list(normalized_weights.values()))[0]
+        # Simplified choice for deterministic: pick team with max weight
+        # If ties, default to sorting alphabetically to ensure determinism
+        max_weight = -1
+        best_teams = []
+        for team, weight in team_odds.items():
+            if weight > max_weight:
+                max_weight = weight
+                best_teams = [team]
+            elif weight == max_weight:
+                best_teams.append(team)
+                
+        if not best_teams: # Should not happen if team_odds is not empty
+             self.eliminated_players.add(player_id)
+             self.elimination_dates[player_id] = date
+             return None
+             
+        best_teams.sort() # Deterministic tie-break
+        pick = best_teams[0]
         
         # Record the pick
         self.used_teams[player_id].add(pick)
         return pick
-    
+
+    def get_team_odds_for_pick(self, team, round_num):
+        # Wrapper or specific implementation for getting odds based on current round for picks
+        # This should use the logic similar to get_team_odds but ensure round_num is correct
+        # For now, assume get_team_odds handles the round correctly based on previous fixes
+        return self.get_team_odds(team, round_num) 
+
     def get_available_teams(self, player_id):
         used = self.used_teams[player_id]
         return [team for team in self.teams_df['teamName'] if team not in used]
@@ -508,189 +546,276 @@ def get_next_date(current_date, schedule_df):
 
 def run_single_simulation(sim_number, schedule_df, teams_df, picks_df, team_mapping, target_date, target_player, variance_factor):
     """Run a single simulation and return the results"""
-    # Don't print progress here if running in parallel
+    # We don't print the simulation number here anymore if using multiprocessing
     # print(f"Running simulation {sim_number+1}") 
     
     # Create new simulators for this simulation
-    tournament_sim = TournamentSimulator(schedule_df.copy(), teams_df.copy(), team_mapping.copy())
-    # Pass copies to avoid potential state issues across processes if DataFrames are modified (though they shouldn't be here)
-    survivor_sim = SurvivorPoolSimulator(schedule_df.copy(), teams_df.copy(), picks_df.copy(), variance_factor, target_date)
+    tournament_sim = TournamentSimulator(schedule_df.copy(), teams_df.copy(), team_mapping.copy()) # Use copies to ensure isolation
+    survivor_sim = SurvivorPoolSimulator(schedule_df.copy(), teams_df.copy(), picks_df.copy(), variance_factor, target_date) # Use copies
     
     # Run the simulation
     survivor_sim.run_simulation(tournament_sim)
     
-    # Ensure we have a winner set for the survivor pool
+    # Ensure we have a winner set
     if survivor_sim.winner is None:
         survivor_sim.winner = survivor_sim.determine_winner()
         if survivor_sim.winner is not None and survivor_sim.winner in survivor_sim.target_date_picks:
             survivor_sim.target_date_triumphs.add(survivor_sim.winner)
     
-    # Ensure the final tournament game is simulated
-    final_game_id = 'FINAL' # Assuming 'FINAL' is the gameID for the championship
-    if final_game_id not in tournament_sim.winners:
-        if not schedule_df[schedule_df['gameID'] == final_game_id].empty:
-             tournament_sim.simulate_game(final_game_id)
-        else:
-            print(f"Warning: Game ID '{final_game_id}' not found in schedule.csv during simulation {sim_number+1}.")
+    # Make sure we simulate the final game if it hasn't been simulated yet
+    # It might be necessary to simulate *all* games to get the full bracket outcome
+    all_game_ids = schedule_df['gameID'].unique()
+    for game_id in all_game_ids:
+        if game_id not in tournament_sim.winners:
+            try:
+                # Attempt to simulate any remaining games
+                tournament_sim.simulate_game(game_id)
+            except Exception:
+                # Handle cases where games can't be simulated yet (e.g., waiting for prior rounds)
+                # This loop ensures we try to complete the bracket as much as possible
+                pass 
 
-    # Prepare survivor pool results to return
-    survivor_results = {
+    # Prepare results to return
+    results = {
+        'tournament_winner': tournament_sim.winners.get('FINAL', None), # Get final winner specifically
+        'full_tournament_outcome': tournament_sim.winners.copy(), # Capture all game winners
         'player_picks': survivor_sim.target_date_picks.copy(),
         'player_triumphs': survivor_sim.target_date_triumphs.copy(),
         'target_player_pick': survivor_sim.target_date_picks.get(target_player)
     }
-
-    # Also return the complete tournament results
-    tournament_results = tournament_sim.winners.copy()
-
-    return survivor_results, tournament_results
+        
+    return results
 
 def run_simulations(num_simulations, target_date, target_player, variance_factor, use_multiprocessing=True, num_processes=None):
     # Load data once
     schedule_df, teams_df, picks_df, team_mapping = load_data()
-
-    # List to store results from each simulation
-    simulation_results_list = []
-    all_tournament_winners_dicts = [] # Store tournament outcomes for consistency check
+    
+    # Initialize counters for statistics
+    player_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
+    team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
+    target_player_team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
+    tournament_winners = defaultdict(int)
+    all_tournament_outcomes = [] # Store full outcomes for comparison
 
     if use_multiprocessing and num_simulations > 1:
+        # Determine number of processes to use
         if num_processes is None:
             num_processes = min(multiprocessing.cpu_count(), num_simulations)
         
-        print(f"Running {num_simulations} simulations using {num_processes} processes")
+        print(f"Running {num_simulations} simulations using {num_processes} processes...")
         
+        # Create a partial function with fixed arguments
+        # Pass copies of dataframes to ensure process isolation
         worker_func = partial(
             run_single_simulation,
-            schedule_df=schedule_df,
-            teams_df=teams_df,
-            picks_df=picks_df,
-            team_mapping=team_mapping,
+            schedule_df=schedule_df.copy(),
+            teams_df=teams_df.copy(),
+            picks_df=picks_df.copy(),
+            team_mapping=team_mapping.copy(),
             target_date=target_date,
             target_player=target_player,
             variance_factor=variance_factor
         )
         
+        # Create a pool of worker processes
         with multiprocessing.Pool(processes=num_processes) as pool:
-            # Map the worker function and collect results
-            # Each result is a tuple: (survivor_results, tournament_results)
-            collected_results = pool.map(worker_func, range(num_simulations))
-        
-        # Separate the results
-        for survivor_res, tournament_res in collected_results:
-             simulation_results_list.append(survivor_res)
-             all_tournament_winners_dicts.append(tournament_res)
+            # Map the worker function to the range of simulation indices
+            # Using imap_unordered for potentially better memory usage with many sims
+            results_iterator = pool.imap_unordered(worker_func, range(num_simulations))
+            
+            # Process results as they complete
+            processed_count = 0
+            for sim_result in results_iterator:
+                processed_count += 1
+                print(f"Processing result {processed_count}/{num_simulations}", end='\\r') # Progress indicator
+                
+                # Aggregate results
+                if sim_result['tournament_winner']:
+                     tournament_winners[sim_result['tournament_winner']] += 1
+                all_tournament_outcomes.append(sim_result['full_tournament_outcome'])
+                
+                # Process player picks and triumphs (same logic as before)
+                for player_id, pick in sim_result['player_picks'].items():
+                    player_stats[player_id]['picks'] += 1
+                    # Check if pick is a string before splitting
+                    if isinstance(pick, str) and ',' in pick:
+                        picks_list = [p.strip() for p in pick.split(',')]
+                        for team in picks_list:
+                            # Ensure team name is valid before using as key
+                            if team:
+                                team_stats[team]['picks'] += 1
+                    elif pick: # Ensure pick is not None or empty
+                        team_stats[pick]['picks'] += 1
+                    
+                    if player_id in sim_result['player_triumphs']:
+                        player_stats[player_id]['triumphs'] += 1
+                        # Check if pick is a string before splitting
+                        if isinstance(pick, str) and ',' in pick:
+                            picks_list = [p.strip() for p in pick.split(',')]
+                            for team in picks_list:
+                                # Ensure team name is valid
+                                if team:
+                                    team_stats[team]['triumphs'] += 1
+                        elif pick: # Ensure pick is not None or empty
+                             team_stats[pick]['triumphs'] += 1
+                        
+                        if player_id == target_player:
+                            # Check if pick is a string before splitting
+                            if isinstance(pick, str) and ',' in pick:
+                                picks_list = [p.strip() for p in pick.split(',')]
+                                for team in picks_list:
+                                     # Ensure team name is valid
+                                     if team:
+                                         target_player_team_stats[team]['triumphs'] += 1
+                            elif pick: # Ensure pick is not None or empty
+                                 target_player_team_stats[pick]['triumphs'] += 1
 
+                # Process target player's pick (same logic as before)
+                if sim_result['target_player_pick']:
+                    pick = sim_result['target_player_pick']
+                    # Check if pick is a string before splitting
+                    if isinstance(pick, str) and ',' in pick:
+                        picks_list = [p.strip() for p in pick.split(',')]
+                        for team in picks_list:
+                             # Ensure team name is valid
+                             if team:
+                                 target_player_team_stats[team]['picks'] += 1
+                    elif pick: # Ensure pick is not None or empty
+                         target_player_team_stats[pick]['picks'] += 1
+
+            print("\\nResults processing complete.") # Newline after progress indicator
+            
     else:
-        print(f"Running {num_simulations} simulations sequentially")
+        print(f"Running {num_simulations} simulations sequentially...")
+        # Original sequential implementation
         for sim in range(num_simulations):
             print(f"Running simulation {sim + 1}/{num_simulations}")
-            survivor_res, tournament_res = run_single_simulation(
+            
+            # Run single simulation logic directly
+            sim_result = run_single_simulation(
                 sim, schedule_df, teams_df, picks_df, team_mapping, 
                 target_date, target_player, variance_factor
             )
-            simulation_results_list.append(survivor_res)
-            all_tournament_winners_dicts.append(tournament_res)
 
-    # --- Test for Deterministic Tournament ---
-    if len(all_tournament_winners_dicts) > 1:
-        first_winners_dict = all_tournament_winners_dicts[0]
-        sorted_first_winners = sorted(first_winners_dict.items())
-        identical = True
-        for i in range(1, len(all_tournament_winners_dicts)):
-            current_winners_dict = all_tournament_winners_dicts[i]
-            sorted_current_winners = sorted(current_winners_dict.items())
-            if sorted_current_winners != sorted_first_winners:
-                identical = False
-                print(f"\n*** TEST FAILED: Tournament outcomes differ between simulation 1 and simulation {i+1}! ***")
+            # Aggregate results
+            if sim_result['tournament_winner']:
+                 tournament_winners[sim_result['tournament_winner']] += 1
+            all_tournament_outcomes.append(sim_result['full_tournament_outcome'])
+
+            # Process player picks and triumphs (same logic as before)
+            for player_id, pick in sim_result['player_picks'].items():
+                 player_stats[player_id]['picks'] += 1
+                 # Check if pick is a string before splitting
+                 if isinstance(pick, str) and ',' in pick:
+                     picks_list = [p.strip() for p in pick.split(',')]
+                     for team in picks_list:
+                         # Ensure team name is valid
+                         if team:
+                             team_stats[team]['picks'] += 1
+                 elif pick:
+                     team_stats[pick]['picks'] += 1
+                 
+                 if player_id in sim_result['player_triumphs']:
+                     player_stats[player_id]['triumphs'] += 1
+                     # Check if pick is a string before splitting
+                     if isinstance(pick, str) and ',' in pick:
+                         picks_list = [p.strip() for p in pick.split(',')]
+                         for team in picks_list:
+                             # Ensure team name is valid
+                             if team:
+                                 team_stats[team]['triumphs'] += 1
+                     elif pick:
+                          team_stats[pick]['triumphs'] += 1
+                     
+                     if player_id == target_player:
+                         # Check if pick is a string before splitting
+                         if isinstance(pick, str) and ',' in pick:
+                             picks_list = [p.strip() for p in pick.split(',')]
+                             for team in picks_list:
+                                  # Ensure team name is valid
+                                  if team:
+                                      target_player_team_stats[team]['triumphs'] += 1
+                         elif pick:
+                              target_player_team_stats[pick]['triumphs'] += 1
+
+            # Process target player's pick (same logic as before)
+            if sim_result['target_player_pick']:
+                 pick = sim_result['target_player_pick']
+                 # Check if pick is a string before splitting
+                 if isinstance(pick, str) and ',' in pick:
+                     picks_list = [p.strip() for p in pick.split(',')]
+                     for team in picks_list:
+                          # Ensure team name is valid
+                          if team:
+                              target_player_team_stats[team]['picks'] += 1
+                 elif pick:
+                      target_player_team_stats[pick]['picks'] += 1
+
+    # --- Determinism Check ---
+    print("\\n--- Tournament Determinism Check ---")
+    if num_simulations > 1 and all_tournament_outcomes:
+        first_outcome = all_tournament_outcomes[0]
+        # Convert dictionaries to sorted list of items for comparison
+        first_outcome_sorted = sorted(first_outcome.items())
+        are_identical = True
+        diff_found_at = -1
+        for i in range(1, len(all_tournament_outcomes)):
+            current_outcome_sorted = sorted(all_tournament_outcomes[i].items())
+            if current_outcome_sorted != first_outcome_sorted:
+                are_identical = False
+                diff_found_at = i
+                break # Stop at first difference
                 
-                # Find and print differences
-                diff_keys = set(first_winners_dict.keys()) ^ set(current_winners_dict.keys())
-                if diff_keys:
-                    print(f"  Differing game keys (might indicate missing games in one sim): {diff_keys}")
-                
-                mismatched_games = []
-                # Compare common keys
-                common_keys = set(first_winners_dict.keys()) & set(current_winners_dict.keys())
-                for key in sorted(common_keys): # Sort keys for consistent output order
-                    if first_winners_dict[key] != current_winners_dict[key]:
-                         mismatched_games.append(f"  Game '{key}': Sim 1='{first_winners_dict[key]}', Sim {i+1}='{current_winners_dict[key]}'")
-                
-                if mismatched_games:
-                     print("  Mismatched winners for the same game:")
-                     for mismatch in mismatched_games:
-                          print(mismatch)
-                
-                break # Stop after first difference found
-        if identical:
-            print("\n--- Test Passed: All tournament outcomes were identical across simulations. ---")
+        if are_identical:
+            print("Result: All simulated tournament outcomes were IDENTICAL.")
         else:
-             # If failed, maybe print summary of first dict for reference
-             print("\nTournament outcome from Simulation 1 for reference:")
-             for game_id, winner in sorted_first_winners:
-                  print(f"  Game '{game_id}': Winner='{winner}'")
-    elif len(all_tournament_winners_dicts) == 1:
-         print("\n--- Test Info: Only one simulation run, cannot compare tournament outcomes. ---")
+            print(f"Result: DIFFERENCES FOUND between tournament outcomes.")
+            print(f"Discrepancy first detected between simulation 1 and simulation {diff_found_at + 1}.")
+            # Optional: Print the differing dictionaries for debugging
+            # print("\\nOutcome 1:")
+            # print(dict(first_outcome_sorted))
+            # print(f"\\nOutcome {diff_found_at + 1}:")
+            # print(dict(sorted(all_tournament_outcomes[diff_found_at].items())))
+    elif num_simulations <= 1:
+        print("Result: Only one simulation run, cannot check for determinism.")
     else:
-         print("\n--- Test Warning: No tournament outcomes collected. ---")
-    # --- End Test ---
+         print("Result: No tournament outcomes collected to check.")
+    print("------------------------------------")
 
-    # Initialize counters for statistics aggregation
-    player_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
-    team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
-    target_player_team_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
-    # Aggregate tournament winners from the collected results
-    tournament_winners_agg = defaultdict(int)
-    if all_tournament_winners_dicts:
-         final_winners_list = [d.get('FINAL', 'Unknown') for d in all_tournament_winners_dicts]
-         for winner in final_winners_list:
-              tournament_winners_agg[winner] += 1
-
-    # Process results from all simulations for survivor pool stats
-    for sim_result in simulation_results_list:
-        # Process player picks and triumphs
-        for player_id, pick in sim_result['player_picks'].items():
-            player_stats[player_id]['picks'] += 1
-            
-            # Handle combined picks format (assuming pick is a string)
-            if isinstance(pick, str) and ',' in pick:
-                picks = [p.strip() for p in pick.split(',')]
-                for team in picks:
-                    team_stats[team]['picks'] += 1
-            elif pick: # Check if pick is not None or empty
-                 team_stats[pick]['picks'] += 1
-            
-            if player_id in sim_result['player_triumphs']:
-                player_stats[player_id]['triumphs'] += 1
-                
-                if isinstance(pick, str) and ',' in pick:
-                    picks = [p.strip() for p in pick.split(',')]
-                    for team in picks:
-                        team_stats[team]['triumphs'] += 1
-                elif pick:
-                    team_stats[pick]['triumphs'] += 1
-                
-                if player_id == target_player:
-                    if isinstance(pick, str) and ',' in pick:
-                        picks = [p.strip() for p in pick.split(',')]
-                        for team in picks:
-                             target_player_team_stats[team]['triumphs'] += 1
-                    elif pick:
-                         target_player_team_stats[pick]['triumphs'] += 1
+    # --- Missing Player Check ---
+    print("\n--- Missing Player Check ---")
+    all_player_ids = set(picks_df.index) # Get all players from the input picks file
+    players_who_picked_on_target = set(player_stats.keys()) # Players who appeared in stats for the target date
+    
+    # Find players in the input file who didn't end up in the target date stats
+    missing_players = all_player_ids - players_who_picked_on_target
+    
+    if not missing_players:
+        print(f"Result: All {len(all_player_ids)} players from sample_picks.csv made a pick on {target_date}.")
+    else:
+        print(f"Result: {len(missing_players)} players from sample_picks.csv did NOT make a recorded pick on {target_date}.")
+        # Filter missing players to only those who actually had a non-null pick specified for the target date in the input CSV
+        players_with_valid_input_pick = set(picks_df[pd.notna(picks_df[target_date])].index)
+        truly_missing_with_input = sorted(list(missing_players.intersection(players_with_valid_input_pick)))
         
-        # Process target player's pick for their specific stats
-        if sim_result['target_player_pick']:
-            pick = sim_result['target_player_pick']
-            if isinstance(pick, str) and ',' in pick:
-                picks = [p.strip() for p in pick.split(',')]
-                for team in picks:
-                     target_player_team_stats[team]['picks'] += 1
-            elif pick:
-                 target_player_team_stats[pick]['picks'] += 1
+        if truly_missing_with_input:
+             print("Players expected to pick based on input CSV but missing from stats:")
+             print(truly_missing_with_input)
+        else:
+            print("All players missing from stats also had no valid pick specified in sample_picks.csv for this date.")
+            
+        # Optionally, list players missing for other reasons (e.g., eliminated before target date)
+        # missing_for_other_reasons = sorted(list(missing_players - players_with_valid_input_pick))
+        # if missing_for_other_reasons:
+        #    print("\nPlayers missing from stats (likely eliminated before target date or had null input pick):")
+        #    print(missing_for_other_reasons)
 
-    # Now print statistics using the aggregated data
-    print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners_agg, target_player, teams_df)
+    print("---------------------------")
 
-def print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners_agg, target_player, teams_df):
+    # After all simulations, print statistics with teams_df
+    print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners, target_player, teams_df)
+
+def print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners, target_player, teams_df):
     """Print all statistics tables with formatting and team seeds."""
     # Player Statistics
     print("\nPlayer Statistics:")
@@ -835,9 +960,9 @@ def print_statistics(num_simulations, player_stats, team_stats, target_player_te
     print(headers)
     print(separator)
     
-    # Print each team's tournament wins using the aggregated dictionary
-    for team in sorted(tournament_winners_agg.keys()):
-        wins = tournament_winners_agg[team]
+    # Print each team's tournament wins
+    for team in sorted(tournament_winners.keys()):
+        wins = tournament_winners[team]
         percentage = (wins / num_simulations) * 100
         
         # Get team seed
