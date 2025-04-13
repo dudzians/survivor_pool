@@ -448,6 +448,26 @@ class SurvivorPoolSimulator:
                 games = pd.concat([games_day7, games_day8])
                 games = games.sort_values('round')
                 
+                # First check if any players have predetermined picks for either day
+                day1_has_picks = False
+                day2_has_picks = False
+                for player_id in self.active_players:
+                    if player_id not in self.eliminated_players:
+                        # Check for predetermined picks
+                        if '3/29/2025' in self.picks_df.columns:
+                            pick_val = self.picks_df.get('3/29/2025', pd.Series(index=self.picks_df.index)).loc[player_id]
+                            if pd.notna(pick_val) and self.team_mapping.get(pick_val, pick_val) != '':
+                                day1_has_picks = True
+                        if '3/30/2025' in self.picks_df.columns:
+                            pick_val = self.picks_df.get('3/30/2025', pd.Series(index=self.picks_df.index)).loc[player_id]
+                            if pd.notna(pick_val) and self.team_mapping.get(pick_val, pick_val) != '':
+                                day2_has_picks = True
+                        if day1_has_picks and day2_has_picks:
+                            break
+                
+                if DEBUG:
+                    print(f"DEBUG: Combined days check - Day 1 has predetermined picks: {day1_has_picks}, Day 2 has predetermined picks: {day2_has_picks}")
+                
                 # Track which players are active before any games are played
                 active_players_on_date = set()
                 player_picks = {}  # {player_id: [pick1, pick2]}
@@ -458,6 +478,26 @@ class SurvivorPoolSimulator:
                         pick1 = self.get_player_pick(player_id, '3/29/2025', tournament_sim)
                         pick2 = self.get_player_pick(player_id, '3/30/2025', tournament_sim)
                         
+                        # Check if player has predetermined picks for both days when others do
+                        pick1_predetermined = False
+                        pick2_predetermined = False
+                        if '3/29/2025' in self.picks_df.columns:
+                            pick_val = self.picks_df.get('3/29/2025', pd.Series(index=self.picks_df.index)).loc[player_id]
+                            if pd.notna(pick_val) and self.team_mapping.get(pick_val, pick_val) != '':
+                                pick1_predetermined = True
+                        if '3/30/2025' in self.picks_df.columns:
+                            pick_val = self.picks_df.get('3/30/2025', pd.Series(index=self.picks_df.index)).loc[player_id]
+                            if pd.notna(pick_val) and self.team_mapping.get(pick_val, pick_val) != '':
+                                pick2_predetermined = True
+                        
+                        # Eliminate player if they don't have predetermined picks for both days when others do
+                        if (day1_has_picks and not pick1_predetermined) or (day2_has_picks and not pick2_predetermined):
+                            self.eliminated_players.add(player_id)
+                            self.elimination_dates[player_id] = current_date
+                            if DEBUG:
+                                print(f"DEBUG: Player {player_id} eliminated for not having predetermined picks for both days (has day1: {pick1_predetermined}, has day2: {pick2_predetermined})")
+                            continue
+                        
                         if pick1 is not None and pick2 is not None:
                             active_players_on_date.add(player_id)
                             player_picks[player_id] = [pick1, pick2]
@@ -467,6 +507,8 @@ class SurvivorPoolSimulator:
                         else:
                             self.eliminated_players.add(player_id)
                             self.elimination_dates[player_id] = current_date
+                            if DEBUG:
+                                print(f"DEBUG: Player {player_id} eliminated in combined day - pick1: {pick1}, pick2: {pick2}")
                 
                 # Simulate each game
                 for _, game in games.iterrows():
