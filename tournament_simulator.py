@@ -31,13 +31,10 @@ def load_data():
     teams_df = pd.read_csv('teams.csv')
     picks_df = pd.read_csv('sample_picks.csv', index_col='player_id')
     
-    # Process teams_df for faster lookups - create an index by team name
-    teams_df_indexed = teams_df.set_index('teamName')
-    
     # Create team mapping
     team_mapping = create_team_mapping(teams_df, picks_df, schedule_df)
     
-    return schedule_df, teams_df, picks_df, team_mapping, teams_df_indexed
+    return schedule_df, teams_df, picks_df, team_mapping
 
 def create_team_mapping(teams_df, picks_df, schedule_df):
     """Create a mapping of team names to their official names."""
@@ -112,14 +109,11 @@ def create_team_mapping(teams_df, picks_df, schedule_df):
     return mapping
 
 class TournamentSimulator:
-    def __init__(self, schedule_df, teams_df, team_mapping, teams_df_indexed=None):
+    def __init__(self, schedule_df, teams_df, team_mapping):
         self.schedule_df = schedule_df
         self.teams_df = teams_df
         self.team_mapping = team_mapping
-        self.teams_df_indexed = teams_df_indexed
         self.winners = {}  # {game_id: winning team}
-        # Add cache for team odds lookups
-        self._team_odds_cache = {}
         
         # Map round numbers to odds column names
         self.round_to_odds = {
@@ -142,11 +136,9 @@ class TournamentSimulator:
         return self.team_mapping.get(team, team)
     
     def get_team_odds(self, team, round_num):
-        # Check cache first
-        cache_key = (team, round_num)
-        if cache_key in self._team_odds_cache:
-            return self._team_odds_cache[cache_key]
-        
+        team_row = self.teams_df[self.teams_df['teamName'] == team]
+        if team_row.empty:
+            return 0
         # Ensure round_num is an integer key if it's not already
         try:
             round_key = int(round_num) 
@@ -158,23 +150,7 @@ class TournamentSimulator:
         else:
              odds_col = self.round_to_odds[round_key]
 
-        # Use indexed dataframe if available
-        if self.teams_df_indexed is not None and team in self.teams_df_indexed.index:
-            odds_value = self.teams_df_indexed.loc[team, odds_col]
-        else:
-            # Fall back to original method
-            team_row = self.teams_df[self.teams_df['teamName'] == team]
-            if team_row.empty:
-                odds_value = 0
-            else:
-                odds_value = team_row[odds_col].iloc[0]
-        
-        # Special debug for St. John's in Round of 32
-        if DEBUG and team == "St. John's" and round_key == 32:
-            print(f"DEBUG: St. John's odds for round {round_key}: {odds_value}")
-        
-        # Cache the result
-        self._team_odds_cache[cache_key] = odds_value
+        odds_value = team_row[odds_col].iloc[0]
         return odds_value
     
     def simulate_game(self, game_id):
@@ -192,10 +168,6 @@ class TournamentSimulator:
             print(f"DEBUG: Simulating Texas Tech game - Texas Tech vs UNC Wilmington")
             print(f"DEBUG: Team A: {team_a}, Team B: {team_b}")
         
-        # Debug for St. John's in Round of 32 (R32_8)
-        if game_id == 'R32_8' and DEBUG:
-            print(f"DEBUG: Simulating Round of 32 game - {team_a} vs {team_b}")
-        
         # Get odds for each team for the correct round
         odds_a = self.get_team_odds(team_a, round_num)
         odds_b = self.get_team_odds(team_b, round_num)
@@ -203,10 +175,6 @@ class TournamentSimulator:
         # Debug Texas Tech game odds
         if game_id == 'R64_14' and DEBUG:
             print(f"DEBUG: Odds - {team_a}: {odds_a}, {team_b}: {odds_b}")
-        
-        # Debug for St. John's in Round of 32
-        if game_id == 'R32_8' and DEBUG:
-            print(f"DEBUG: Round of 32 odds - {team_a}: {odds_a}, {team_b}: {odds_b}")
         
         # Determine winner based on odds (should be deterministic for 100/0)
         winner = None
@@ -234,10 +202,6 @@ class TournamentSimulator:
         # Debug Texas Tech game winner
         if game_id == 'R64_14' and DEBUG:
             print(f"DEBUG: Winner of Texas Tech game: {winner}")
-        
-        # Debug for St. John's in Round of 32
-        if game_id == 'R32_8' and DEBUG:
-            print(f"DEBUG: Winner of Round of 32 game: {winner}")
         
         # Record the winner
         self.winners[game_id] = winner
@@ -283,19 +247,11 @@ class SurvivorPoolSimulator:
     
     def get_player_pick(self, player_id, date, tournament_sim):
         if player_id in self.eliminated_players:
+            # Debug for player 170
+            if player_id == 170 and (date == '3/22/2025' or date == '3/23/2025') and DEBUG:
+                print(f"DEBUG: Player 170 is already eliminated when checked on {date}")
             return None
             
-        # Check if date exists in schedule_df - if not, we should skip this date
-        if len(self.schedule_df[self.schedule_df['day'] == date]) == 0:
-            if DEBUG:
-                print(f"DEBUG: No games found for date {date}, skipping")
-            return None
-            
-        # Debug for player 170
-        if DEBUG and player_id == 170:
-            print(f"DEBUG: Getting pick for player 170 on {date}")
-            print(f"DEBUG: Player 170 used teams: {self.used_teams.get(170, set())}")
-        
         # Check if there's a predetermined pick
         pick_predetermined = None
         if date in self.picks_df.columns:
@@ -306,11 +262,17 @@ class SurvivorPoolSimulator:
                  if mapped_pick != '':
                      pick_predetermined = mapped_pick
                      # Debug for player 170
-                     if DEBUG and player_id == 170:
-                         print(f"DEBUG: Player 170 predetermined pick on {date}: {pick_predetermined}")
+                     if player_id == 170 and (date == '3/22/2025' or date == '3/23/2025') and DEBUG:
+                         print(f"DEBUG: Player 170 has predetermined pick {original_pick} mapped to {mapped_pick} on {date}")
+                         print(f"DEBUG: Player 170 used teams before pick: {self.used_teams[player_id]}")
                      return pick_predetermined 
                  else:
                       pass # Predetermined pick maps to empty
+
+        # Debug for player 170
+        if player_id == 170 and (date == '3/22/2025' or date == '3/23/2025') and DEBUG:
+            print(f"DEBUG: Player 170 has no predetermined pick on {date}, will simulate pick")
+            print(f"DEBUG: Player 170 used teams before simulating: {self.used_teams[player_id]}")
 
         # --- Simulate Pick Logic --- 
         available_teams_all = self.get_available_teams(player_id)
@@ -334,9 +296,16 @@ class SurvivorPoolSimulator:
         
         available_teams_playing = [team for team in available_teams_all if team in playing_teams]
 
+        # Debug for player 170
+        if player_id == 170 and (date == '3/22/2025' or date == '3/23/2025') and DEBUG:
+            print(f"DEBUG: Player 170 available teams playing on {date}: {available_teams_playing}")
+            print(f"DEBUG: All teams playing on {date}: {playing_teams}")
+
         if not available_teams_playing:
             self.eliminated_players.add(player_id)
             self.elimination_dates[player_id] = date
+            if player_id == 170 and (date == '3/22/2025' or date == '3/23/2025') and DEBUG:
+                print(f"DEBUG: Player 170 eliminated on {date} - no available teams to pick from")
             return None
             
         # Get odds for available teams
@@ -348,20 +317,12 @@ class SurvivorPoolSimulator:
                 odds = tournament_sim.get_team_odds(team, current_round)
                 boost_multiplier = SEED_BOOSTS.get(str(current_round), {}).get(seed, 1)
                 pick_weight = odds * boost_multiplier
-                # Ensure weight is positive
-                if pick_weight > 0:
-                    team_odds[team] = pick_weight
+                team_odds[team] = pick_weight
         
         if not team_odds:
-            # If no team has positive odds, use equal weights for all teams
-            for team in available_teams_playing:
-                team_odds[team] = 1.0
-            
-            # If still no teams, player is eliminated
-            if not team_odds:
-                self.eliminated_players.add(player_id)
-                self.elimination_dates[player_id] = date
-                return None
+            self.eliminated_players.add(player_id)
+            self.elimination_dates[player_id] = date
+            return None
             
         # Always use probabilistic selection based on the weights
         teams = list(team_odds.keys())
@@ -371,10 +332,14 @@ class SurvivorPoolSimulator:
             # Apply variance factor adjustment if variance_factor > 0
             # Normalize to get base probabilities
             total_weight = sum(weights)
+            
+            # If total weight is zero, eliminate player
             if total_weight <= 0:
-                # Fall back to equal weights if total is non-positive
-                weights = [1.0] * len(teams)
-                total_weight = float(len(teams))
+                if DEBUG:
+                    print(f"DEBUG: Player {player_id} eliminated on {date} - all weights zero")
+                self.eliminated_players.add(player_id)
+                self.elimination_dates[player_id] = date
+                return None
                 
             base_probs = [w / total_weight for w in weights]
             
@@ -387,18 +352,17 @@ class SurvivorPoolSimulator:
                 
             # Re-normalize the adjusted probabilities
             total_adjusted = sum(adjusted_probs)
-            if total_adjusted <= 0:
-                # Fall back to equal weights if total adjusted is non-positive
-                weights = [1.0] * len(teams)
-            else:
-                weights = [p / total_adjusted for p in adjusted_probs]
-        
-        # Final check for zero or negative weights
-        if sum(weights) <= 0:
-            # If all weights are zero or negative, use equal probabilities
-            weights = [1.0] * len(teams)
-        
-        # Make the random selection based on weights
+            weights = [p / total_adjusted for p in adjusted_probs]
+        else:
+            # Check if all weights are zero even without variance adjustment
+            if sum(weights) <= 0:
+                if DEBUG:
+                    print(f"DEBUG: Player {player_id} eliminated on {date} - all weights zero")
+                self.eliminated_players.add(player_id)
+                self.elimination_dates[player_id] = date
+                return None
+            
+        # Make the random selection based on weights (original or adjusted)
         pick_simulated = random.choices(teams, weights=weights, k=1)[0]
         
         self.used_teams[player_id].add(pick_simulated)
@@ -444,6 +408,36 @@ class SurvivorPoolSimulator:
             if DEBUG:
                 print(f"DEBUG: Processing date {current_date}")
             
+            # Check if any player has a predetermined pick for this date
+            # If at least one player has a pick, those without picks should be eliminated
+            if current_date in self.picks_df.columns:
+                players_with_picks = set(self.picks_df[pd.notna(self.picks_df[current_date])].index)
+                if players_with_picks and DEBUG:  
+                    print(f"DEBUG: {len(players_with_picks)} players have predetermined picks on {current_date}")
+                    # Debug specific players of interest
+                    for player_id in [1548, 1881]:
+                        if player_id in players_with_picks:
+                            print(f"DEBUG: Player {player_id} has a predetermined pick on {current_date}")
+                        elif player_id in self.active_players and player_id not in self.eliminated_players:
+                            print(f"DEBUG: Player {player_id} is active but has no predetermined pick on {current_date}")
+                        elif player_id in self.eliminated_players:
+                            print(f"DEBUG: Player {player_id} is already eliminated prior to {current_date}")
+                
+                if players_with_picks:  # Only check if at least one player has a pick
+                    players_without_picks = self.active_players - self.eliminated_players - players_with_picks
+                    if DEBUG and players_without_picks:
+                        print(f"DEBUG: {len(players_without_picks)} players will be eliminated for not having picks on {current_date}")
+                        if 1548 in players_without_picks:
+                            print(f"DEBUG: Player 1548 will be eliminated for not having a pick on {current_date}")
+                        if 1881 in players_without_picks:
+                            print(f"DEBUG: Player 1881 will be eliminated for not having a pick on {current_date}")
+                    
+                    for player_id in players_without_picks:
+                        self.eliminated_players.add(player_id)
+                        self.elimination_dates[player_id] = current_date
+                        if DEBUG and (player_id == 1548 or player_id == 1881 or len(players_without_picks) < 10):
+                            print(f"DEBUG: Player {player_id} eliminated for not having a predetermined pick on {current_date} when others did")
+            
             # Special handling for combined days 7 and 8
             if current_date in ['3/29/2025', '3/30/2025']:
                 # Get games for both days
@@ -483,12 +477,18 @@ class SurvivorPoolSimulator:
                     # Process each active player's picks
                     for player_id in list(active_players_on_date):
                         if player_id in self.eliminated_players:
+                            # Debug for player 170
+                            if player_id == 170 and (current_date == '3/22/2025' or current_date == '3/23/2025') and DEBUG:
+                                print(f"DEBUG: Player 170 already eliminated during game processing on {current_date}")
                             continue
                             
                         picks = player_picks.get(player_id)
                         if picks is None:
                             self.eliminated_players.add(player_id)
                             self.elimination_dates[player_id] = current_date
+                            # Debug for player 170
+                            if player_id == 170 and (current_date == '3/22/2025' or current_date == '3/23/2025') and DEBUG:
+                                print(f"DEBUG: Player 170 eliminated during game processing - no pick on {current_date}")
                             continue
                             
                         # Get the teams playing in this game
@@ -500,6 +500,13 @@ class SurvivorPoolSimulator:
                            (picks[1] in [team_a, team_b] and picks[1] != winner):
                             self.eliminated_players.add(player_id)
                             self.elimination_dates[player_id] = current_date
+                            # Debug for player 1881 or player 170
+                            if (player_id == 1881 or player_id == 170) and DEBUG:
+                                print(f"DEBUG: Player {player_id} eliminated during combined day processing - picked {picks[0]} and {picks[1]}, but team {picks[0] if picks[0] in [team_a, team_b] and picks[0] != winner else picks[1]} lost to {winner}")
+                                print(f"DEBUG: Game was between {team_a} and {team_b}")
+                            # Debug if this is the Texas Tech game
+                            if game['gameID'] == 'R64_14' and DEBUG:
+                                print(f"DEBUG: Player {player_id} picked {picks} and was eliminated (winner was {winner})")
                 
                 # Move to next date after the combined days
                 current_date = get_next_date('3/30/2025', self.schedule_df)
@@ -576,12 +583,18 @@ class SurvivorPoolSimulator:
                 # Process each active player's pick
                 for player_id in list(active_players_on_date):
                     if player_id in self.eliminated_players:
+                        # Debug for player 170
+                        if player_id == 170 and (current_date == '3/22/2025' or current_date == '3/23/2025') and DEBUG:
+                            print(f"DEBUG: Player 170 already eliminated during game processing on {current_date}")
                         continue
                         
                     pick = player_picks.get(player_id)
                     if pick is None:
                         self.eliminated_players.add(player_id)
                         self.elimination_dates[player_id] = current_date
+                        # Debug for player 170
+                        if player_id == 170 and (current_date == '3/22/2025' or current_date == '3/23/2025') and DEBUG:
+                            print(f"DEBUG: Player 170 eliminated during game processing - no pick on {current_date}")
                         continue
                         
                     # Get the teams playing in this game
@@ -592,6 +605,10 @@ class SurvivorPoolSimulator:
                     if pick in [team_a, team_b] and pick != winner:
                         self.eliminated_players.add(player_id)
                         self.elimination_dates[player_id] = current_date
+                        # Debug for player 170
+                        if player_id == 170 and (current_date == '3/22/2025' or current_date == '3/23/2025') and DEBUG:
+                            print(f"DEBUG: Player 170 eliminated during game processing - picked {pick} but {winner} won on {current_date}")
+                            print(f"DEBUG: Game was between {team_a} and {team_b}")
                         # Debug if this is the Texas Tech game
                         if game['gameID'] == 'R64_14' and DEBUG:
                             print(f"DEBUG: Player {player_id} picked {pick} and was eliminated (winner was {winner})")
@@ -688,30 +705,18 @@ class SurvivorPoolSimulator:
 def get_next_date(current_date, schedule_df):
     """Get the next date in the schedule after current_date."""
     dates = sorted(schedule_df['day'].unique())
-    
-    # If current date is not in the schedule, find the next available date
-    if current_date not in dates:
-        # Find the first date that comes after current_date
-        for date in dates:
-            if date > current_date:
-                if DEBUG:
-                    print(f"DEBUG: Current date {current_date} not in schedule, skipping to next scheduled date {date}")
-                return date
-        return None  # No dates after current_date
-    
-    # Regular case: current date is in the schedule
     current_idx = dates.index(current_date)
     if current_idx + 1 < len(dates):
         return dates[current_idx + 1]
     return None
 
-def run_single_simulation(sim_number, schedule_df, teams_df, picks_df, team_mapping, target_date, target_player, variance_factor, teams_df_indexed=None):
+def run_single_simulation(sim_number, schedule_df, teams_df, picks_df, team_mapping, target_date, target_player, variance_factor):
     """Run a single simulation and return the results"""
     # We don't print the simulation number here anymore if using multiprocessing
     # print(f"Running simulation {sim_number+1}") 
     
     # Create new simulators for this simulation
-    tournament_sim = TournamentSimulator(schedule_df.copy(), teams_df.copy(), team_mapping.copy(), teams_df_indexed) # Use copies to ensure isolation
+    tournament_sim = TournamentSimulator(schedule_df.copy(), teams_df.copy(), team_mapping.copy()) # Use copies to ensure isolation
     survivor_sim = SurvivorPoolSimulator(schedule_df.copy(), teams_df.copy(), picks_df.copy(), variance_factor, target_date) # Use copies
     
     # Run the simulation
@@ -748,15 +753,7 @@ def run_single_simulation(sim_number, schedule_df, teams_df, picks_df, team_mapp
 
 def run_simulations(num_simulations, target_date, target_player, variance_factor, use_multiprocessing=True, num_processes=None):
     # Load data once
-    schedule_df, teams_df, picks_df, team_mapping, teams_df_indexed = load_data()
-    
-    # Check if target_date exists in picks_df and in schedule_df
-    target_date_in_picks = target_date in picks_df.columns
-    target_date_in_schedule = len(schedule_df[schedule_df['day'] == target_date]) > 0
-    
-    # If the target date is not in the schedule, warn the user
-    if not target_date_in_schedule:
-        print(f"WARNING: Target date {target_date} is not found in the schedule. There may be no games on this date.")
+    schedule_df, teams_df, picks_df, team_mapping = load_data()
     
     # Initialize stats (ensure triumph is 0)
     player_stats = defaultdict(lambda: {'picks': 0, 'triumphs': 0})
@@ -783,8 +780,7 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
             team_mapping=team_mapping.copy(),
             target_date=target_date,
             target_player=target_player,
-            variance_factor=variance_factor,
-            teams_df_indexed=teams_df_indexed
+            variance_factor=variance_factor
         )
         
         # Create a pool of worker processes
@@ -817,20 +813,48 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
                     # Aggregate team picks (all players)
                     if isinstance(pick, str) and ',' in pick:
                         picks_list = [p.strip() for p in pick.split(',')]
-                        for team in picks_list: team_stats[team]['picks'] += 1
-                    elif pick: team_stats[pick]['picks'] += 1
-                    # Aggregate target player team picks
-                    if player_id == target_player:
-                        if isinstance(pick, str) and ',' in pick:
-                             picks_list = [p.strip() for p in pick.split(',')]
-                             for team in picks_list: target_player_team_stats[team]['picks'] += 1
-                        elif pick: target_player_team_stats[pick]['picks'] += 1
-                         
-                # Add player triumph count ONLY to the actual winner 
-                if actual_winner_id is not None:
-                    player_stats[actual_winner_id]['triumphs'] += 1 
+                        for team in picks_list:
+                            # Ensure team name is valid
+                            if team:
+                                team_stats[team]['picks'] += 1
+                                if DEBUG:
+                                    print(f"DEBUG: Added pick for team '{team}' (from '{pick}')")
+                            else:
+                                if DEBUG:
+                                    print(f"DEBUG: Player {player_id} has empty/invalid pick: '{pick}'")
+                    elif pick:
+                        # Add direct pick handling for non-comma case
+                        team_stats[pick]['picks'] += 1
+                        if DEBUG:
+                            print(f"DEBUG: Added pick for team '{pick}' (direct)")
+                    else:
+                        if DEBUG:
+                            print(f"DEBUG: Player {player_id} has empty/invalid pick: '{pick}'")
+                    
+                    # Add player triumph count ONLY to the actual winner
+                    if player_id == actual_winner_id:
+                        player_stats[player_id]['triumphs'] += 1
                 
-                # Add team/target_player triumph counts IF the winner picked on the target date
+                # Process target player's pick - add picks and check if team won
+                if sim_result['target_player_pick']:
+                    pick = sim_result['target_player_pick']
+                    # Check if pick is a string before splitting
+                    if isinstance(pick, str) and ',' in pick:
+                        picks_list = [p.strip() for p in pick.split(',')]
+                        for team in picks_list:
+                            # Ensure team name is valid
+                            if team:
+                                target_player_team_stats[team]['picks'] += 1
+                                # Only count as triumph if target player won the entire pool
+                                if target_player == sim_result['final_pool_winner']:
+                                    target_player_team_stats[team]['triumphs'] += 1
+                    elif pick:
+                        target_player_team_stats[pick]['picks'] += 1
+                        # Only count as triumph if target player won the entire pool
+                        if target_player == sim_result['final_pool_winner']:
+                            target_player_team_stats[pick]['triumphs'] += 1
+
+                # Add team triumph counts if the winner picked on the target date
                 if winner_pick_on_target:
                     # Team Stats Triumph
                     if isinstance(winner_pick_on_target, str) and ',' in winner_pick_on_target:
@@ -838,13 +862,6 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
                         for team in picks_list: team_stats[team]['triumphs'] += 1
                     elif winner_pick_on_target: 
                         team_stats[winner_pick_on_target]['triumphs'] += 1
-                    # Target Player Team Stats Triumph
-                    if actual_winner_id == target_player:
-                         if isinstance(winner_pick_on_target, str) and ',' in winner_pick_on_target:
-                             picks_list = [p.strip() for p in winner_pick_on_target.split(',')]
-                             for team in picks_list: target_player_team_stats[team]['triumphs'] += 1
-                         elif winner_pick_on_target: 
-                             target_player_team_stats[winner_pick_on_target]['triumphs'] += 1
 
             print("\nResults processing complete.") # Newline after progress indicator
     else:
@@ -856,7 +873,7 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
             # Run single simulation logic directly
             sim_result = run_single_simulation(
                 sim, schedule_df, teams_df, picks_df, team_mapping, 
-                target_date, target_player, variance_factor, teams_df_indexed
+                target_date, target_player, variance_factor
             )
 
             # Aggregate tournament winner
@@ -881,12 +898,28 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
                          # Ensure team name is valid
                          if team:
                              team_stats[team]['picks'] += 1
+                             if DEBUG:
+                                 print(f"DEBUG: Added pick for team '{team}' (from '{pick}')")
+                 elif pick:
+                     # Add direct pick handling for non-comma case
+                     team_stats[pick]['picks'] += 1
+                     if DEBUG:
+                         print(f"DEBUG: Added pick for team '{pick}' (direct)")
+                 else:
+                     if DEBUG:
+                         print(f"DEBUG: Player {player_id} has empty/invalid pick: '{pick}'")
                  
                  # Add player triumph count ONLY to the actual winner
                  if player_id == actual_winner_id:
                     player_stats[player_id]['triumphs'] += 1
 
-            # Process target player's pick (same logic as before)
+            # Debug team stats collection
+            if DEBUG:
+                pick_count = sum(team_stats[team]['picks'] for team in team_stats)
+                team_count = sum(1 for team in team_stats if team_stats[team]['picks'] > 0)
+                print(f"DEBUG: Collected {pick_count} total team picks across {team_count} teams")
+
+            # Process target player's pick - add picks and check if team won
             if sim_result['target_player_pick']:
                  pick = sim_result['target_player_pick']
                  # Check if pick is a string before splitting
@@ -896,10 +929,16 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
                           # Ensure team name is valid
                           if team:
                               target_player_team_stats[team]['picks'] += 1
+                              # Only count as triumph if target player won the entire pool
+                              if target_player == sim_result['final_pool_winner']:
+                                  target_player_team_stats[team]['triumphs'] += 1
                  elif pick:
                       target_player_team_stats[pick]['picks'] += 1
+                      # Only count as triumph if target player won the entire pool
+                      if target_player == sim_result['final_pool_winner']:
+                          target_player_team_stats[pick]['triumphs'] += 1
 
-            # Add team/target_player triumph counts IF the winner picked on the target date
+            # Add team triumph counts if the winner picked on the target date
             if winner_pick_on_target:
                 # Team Stats Triumph
                 if isinstance(winner_pick_on_target, str) and ',' in winner_pick_on_target:
@@ -907,13 +946,6 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
                     for team in picks_list: team_stats[team]['triumphs'] += 1
                 elif winner_pick_on_target: 
                     team_stats[winner_pick_on_target]['triumphs'] += 1
-                # Target Player Team Stats Triumph
-                if actual_winner_id == target_player:
-                    if isinstance(winner_pick_on_target, str) and ',' in winner_pick_on_target:
-                        picks_list = [p.strip() for p in winner_pick_on_target.split(',')]
-                        for team in picks_list: target_player_team_stats[team]['triumphs'] += 1
-                    elif winner_pick_on_target: 
-                        target_player_team_stats[winner_pick_on_target]['triumphs'] += 1
 
     # --- Determinism Check ---
     if DEBUG:
@@ -961,18 +993,14 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
         else:
             print(f"Result: {len(missing_players)} players from sample_picks.csv did NOT make a recorded pick on {target_date}.")
             # Filter missing players to only those who actually had a non-null pick specified for the target date in the input CSV
-            players_with_valid_input_pick = set()
-            if target_date_in_picks:  # Check that the target_date exists in picks_df before trying to access it
-                players_with_valid_input_pick = set(picks_df[pd.notna(picks_df[target_date])].index)
-                truly_missing_with_input = sorted(list(missing_players.intersection(players_with_valid_input_pick)))
-                
-                if truly_missing_with_input:
-                     print("Players expected to pick based on input CSV but missing from stats:")
-                     print(truly_missing_with_input)
-                else:
-                    print("All players missing from stats also had no valid pick specified in sample_picks.csv for this date.")
+            players_with_valid_input_pick = set(picks_df[pd.notna(picks_df[target_date])].index)
+            truly_missing_with_input = sorted(list(missing_players.intersection(players_with_valid_input_pick)))
+            
+            if truly_missing_with_input:
+                 print("Players expected to pick based on input CSV but missing from stats:")
+                 print(truly_missing_with_input)
             else:
-                print(f"No entries found in sample_picks.csv for date {target_date}. This date may not have any scheduled games.")
+                print("All players missing from stats also had no valid pick specified in sample_picks.csv for this date.")
                 
             # Optionally, list players missing for other reasons (e.g., eliminated before target date)
             # missing_for_other_reasons = sorted(list(missing_players - players_with_valid_input_pick))
@@ -998,6 +1026,13 @@ def run_simulations(num_simulations, target_date, target_player, variance_factor
 
 def print_statistics(num_simulations, player_stats, team_stats, target_player_team_stats, tournament_winners, target_player, teams_df):
     """Print all statistics tables with formatting and team seeds."""
+    # Team stats summary - removed debug flag to always show this info
+    print("\nTeam Statistics Summary:")
+    print(f"Total teams with picks: {len(team_stats)}")
+    print(f"Total picks recorded: {sum(team_stats[team]['picks'] for team in team_stats)}")
+    if len(team_stats) == 0:
+        print("WARNING: No team statistics data available!")
+    
     # Player Statistics (Restore Triumph Probability)
     print("\nPlayer Statistics (Based on Target Date Picks & Overall Pool Wins):")
     print("Player ID | Picks on Target Date | Total Triumphs | Triumph Probability")
@@ -1036,41 +1071,15 @@ def print_statistics(num_simulations, player_stats, team_stats, target_player_te
     total_triumphs = sum(team_stats[team]['triumphs'] for team in team_stats) # Recalculate based on new aggregation
     # Overall triumph probability for the table (triumphs / total picks on this day)
     total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
+    
+    # Show all teams with at least one pick, regardless of triumphs
     for team in sorted(team_stats.keys()):
         picks = team_stats[team]['picks']
-        triumphs = team_stats[team].get('triumphs', 0) # Use .get() for safety
-        pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
-        prob = (triumphs / picks * 100) if picks > 0 else 0 # Per-team triumph probability
-        seed = teams_df[teams_df['teamName'] == team]['seed'].iloc[0] if not teams_df[teams_df['teamName'] == team].empty else None
-        team_display = team if seed is None else f"{team} ({seed})"
-        print(f"{team_display:<{team_width}} | "
-              f"{picks:>{picks_width}} | "
-              f"{pick_pct:>{pct_width-1}.2f}% | "
-              f"{triumphs:>{triumphs_width}} | " # Add back
-              f"{prob:>{prob_width-1}.2f}%" ) # Add back
-    print(separator)
-    print(f"{'TOTAL':<{team_width}} | "
-          f"{total_picks:>{picks_width}} | "
-          f"{100:>{pct_width-1}.2f}% | "
-          f"{total_triumphs:>{triumphs_width}} | " # Add back
-          f"{total_prob:>{prob_width-1}.2f}%" ) # Add back
-    
-    # Team Statistics (Target Player) - Restore Triumph columns
-    print(f"\nTeam Statistics (Player {target_player}, Based on Target Date Picks):")
-    # Reuse headers and separator defined above
-    print(headers) 
-    print(separator)
-    total_picks = sum(target_player_team_stats[team]['picks'] for team in target_player_team_stats)
-    total_triumphs = sum(target_player_team_stats[team]['triumphs'] for team in target_player_team_stats)
-    total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
-    if total_picks == 0:
-         print(f"{'No picks made by player on target date':^{len(headers)}}")
-    else:
-        for team in sorted(target_player_team_stats.keys()):
-            picks = target_player_team_stats[team]['picks']
-            triumphs = target_player_team_stats[team].get('triumphs', 0)
+        # Only show teams that were actually picked
+        if picks > 0:
+            triumphs = team_stats[team].get('triumphs', 0) # Use .get() for safety
             pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
-            prob = (triumphs / picks * 100) if picks > 0 else 0
+            prob = (triumphs / picks * 100) if picks > 0 else 0 # Per-team triumph probability
             seed = teams_df[teams_df['teamName'] == team]['seed'].iloc[0] if not teams_df[teams_df['teamName'] == team].empty else None
             team_display = team if seed is None else f"{team} ({seed})"
             print(f"{team_display:<{team_width}} | "
@@ -1078,6 +1087,41 @@ def print_statistics(num_simulations, player_stats, team_stats, target_player_te
                   f"{pick_pct:>{pct_width-1}.2f}% | "
                   f"{triumphs:>{triumphs_width}} | " # Add back
                   f"{prob:>{prob_width-1}.2f}%" ) # Add back
+    print(separator)
+    print(f"{'TOTAL':<{team_width}} | "
+          f"{total_picks:>{picks_width}} | "
+          f"{100:>{pct_width-1}.2f}% | "
+          f"{total_triumphs:>{triumphs_width}} | " # Add back
+          f"{total_prob:>{prob_width-1}.2f}%" ) # Add back
+    
+    # Team Statistics (Target Player)
+    print(f"\nTeam Statistics (Player {target_player}, Based on Target Date Picks):")
+    # Print debug info about target player picks
+    print(f"Target player has {sum(target_player_team_stats[team]['picks'] for team in target_player_team_stats)} total picks across {len(target_player_team_stats)} teams")
+    
+    # Reuse headers and separator defined above
+    print(headers) 
+    print(separator)
+    total_picks = sum(target_player_team_stats[team]['picks'] for team in target_player_team_stats)
+    total_triumphs = sum(target_player_team_stats[team]['triumphs'] for team in target_player_team_stats)
+    total_prob = (total_triumphs / total_picks * 100) if total_picks > 0 else 0
+    if total_picks == 0:
+        print(f"{'No picks made by player on target date':^{len(headers)}}")
+    else:
+        for team in sorted(target_player_team_stats.keys()):
+            picks = target_player_team_stats[team]['picks']
+            # Only show teams that were actually picked
+            if picks > 0:
+                triumphs = target_player_team_stats[team].get('triumphs', 0)
+                pick_pct = (picks / total_picks * 100) if total_picks > 0 else 0
+                prob = (triumphs / picks * 100) if picks > 0 else 0
+                seed = teams_df[teams_df['teamName'] == team]['seed'].iloc[0] if not teams_df[teams_df['teamName'] == team].empty else None
+                team_display = team if seed is None else f"{team} ({seed})"
+                print(f"{team_display:<{team_width}} | "
+                      f"{picks:>{picks_width}} | "
+                      f"{pick_pct:>{pct_width-1}.2f}% | "
+                      f"{triumphs:>{triumphs_width}} | " # Add back
+                      f"{prob:>{prob_width-1}.2f}%" ) # Add back
     print(separator)
     if total_picks > 0:
          print(f"{'TOTAL':<{team_width}} | "
